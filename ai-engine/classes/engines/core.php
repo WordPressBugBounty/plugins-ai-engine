@@ -37,11 +37,79 @@ class Meow_MWAI_Engines_Core {
     $this->streamBuffer = '';
     $this->streamHeaders = [];
     $this->streamContent = '';
-    
+
     // Reset debug/event state
     $this->currentDebugMode = false;
     $this->currentQuery = null;
     $this->emittedFunctionResults = [];
+  }
+
+  /**
+   * Safely encode data to JSON for API requests with UTF-8 error handling.
+   *
+   * WordPress content can contain malformed UTF-8 characters from various sources:
+   * - Copy-paste from Microsoft Word or other rich text editors
+   * - Database migrations from different character sets
+   * - Old content created before proper UTF-8 handling
+   * - User input with mixed encodings
+   * - WooCommerce product descriptions with special characters
+   *
+   * Without proper handling, json_encode() silently returns FALSE when encountering
+   * invalid UTF-8, causing API requests to fail cryptically with no error message.
+   *
+   * This method:
+   * 1. Uses JSON_INVALID_UTF8_SUBSTITUTE to replace invalid UTF-8 with � (U+FFFD)
+   * 2. Detects encoding failures and logs detailed debugging information
+   * 3. Throws descriptive exceptions instead of failing silently
+   *
+   * The replacement character (�) is handled correctly by all modern AI APIs and is
+   * far better than complete request failure.
+   *
+   * @param mixed $data The data to encode (array, object, string, etc.)
+   * @param string $context Optional context for error messages (e.g., 'request body', 'query')
+   * @return string The JSON-encoded string
+   * @throws Exception If JSON encoding fails even with UTF-8 substitution
+   */
+  protected function safe_json_encode( $data, $context = 'data' ) {
+    // Use JSON_INVALID_UTF8_SUBSTITUTE to handle malformed UTF-8 gracefully
+    // This flag replaces invalid sequences with the Unicode replacement character (U+FFFD)
+    $json = json_encode( $data, JSON_INVALID_UTF8_SUBSTITUTE );
+
+    if ( $json === false ) {
+      // Encoding failed even with UTF-8 substitution - log detailed debug info
+      $error_msg = json_last_error_msg();
+      error_log( "[AI Engine] JSON encode failed for {$context}: {$error_msg}" );
+      error_log( '[AI Engine] Data type: ' . gettype( $data ) );
+
+      if ( is_array( $data ) || is_object( $data ) ) {
+        // Log structure (limited to prevent massive logs)
+        $structure = print_r( $data, true );
+        $preview = substr( $structure, 0, 1000 );
+        if ( strlen( $structure ) > 1000 ) {
+          $preview .= "\n... (truncated, total length: " . strlen( $structure ) . ' chars)';
+        }
+        error_log( "[AI Engine] Data structure: {$preview}" );
+      }
+
+      throw new Exception( "Failed to encode {$context} as JSON: {$error_msg}" );
+    }
+
+    return $json;
+  }
+
+  /**
+   * Prepare query before execution.
+   * This method is called BEFORE any streaming hooks are set up.
+   * Engines should override this to perform preliminary tasks like:
+   * - Uploading files to provider APIs
+   * - Preprocessing data
+   * - Validating query parameters
+   *
+   * @param Meow_MWAI_Query_Base $query The query to prepare
+   */
+  protected function prepare_query( $query ) {
+    // Base implementation does nothing
+    // Child engines can override to add provider-specific preparation
   }
 
   public function run( $query, $streamCallback = null, $maxDepth = 5 ) {
@@ -120,7 +188,7 @@ class Meow_MWAI_Engines_Core {
     // Function Call Handling - This is where the magic happens!
     // When the AI model requests function calls, we execute them and send results back
     if ( !empty( $reply->needFeedbacks ) ) {
-      
+
       // Debug: Log how many needFeedbacks we have
       if ( $queries_debug ) {
         error_log( '[AI Engine Queries] Core: Processing ' . count( $reply->needFeedbacks ) . ' needFeedbacks' );
@@ -128,8 +196,6 @@ class Meow_MWAI_Engines_Core {
           error_log( '[AI Engine Queries] Core: needFeedback[' . $idx . ']: name=' . $feedback['name'] . ', toolId=' . ( $feedback['toolId'] ?? 'none' ) );
         }
       }
-      
-      
 
       // Prevent infinite loops - each function call reduces maxDepth by 1
       if ( $maxDepth <= 0 ) {
@@ -158,8 +224,8 @@ class Meow_MWAI_Engines_Core {
       foreach ( $reply->needFeedbacks as $needFeedback ) {
         if ( !isset( $needFeedback['function'] ) ) {
           $functionName = $needFeedback['name'] ?? 'unknown';
-          $availableFunctions = array_map( function( $f ) { return $f->name; }, $query->functions );
-          
+          $availableFunctions = array_map( function ( $f ) { return $f->name; }, $query->functions );
+
           throw new Exception( sprintf(
             "Function '%s' not found in query functions. Available functions: %s",
             $functionName,
@@ -171,21 +237,21 @@ class Meow_MWAI_Engines_Core {
       // Group function calls by their source message to maintain proper context
       // This ensures related function calls are processed together
       $feedback_blocks = [];
-      
+
       // Special handling for Responses API - group all function calls together
       // Check if we're using Responses API by looking at the query's previous response ID or reply ID
       $isResponsesApi = false;
-      
+
       // Method 1: Check if query has a previous response ID from Responses API
       if ( !empty( $query->previousResponseId ) && $this->core->responseIdManager->is_valid_for_responses_api( $query->previousResponseId ) ) {
         $isResponsesApi = true;
       }
-      
+
       // Method 2: Check if the reply has a Responses API response ID
       if ( !$isResponsesApi && !empty( $reply->id ) && $this->core->responseIdManager->is_valid_for_responses_api( $reply->id ) ) {
         $isResponsesApi = true;
       }
-      
+
       // Method 3: Check the model tags for 'responses' tag
       if ( !$isResponsesApi && !empty( $query->model ) ) {
         $modelInfo = $this->retrieve_model_info( $query->model );
@@ -197,14 +263,14 @@ class Meow_MWAI_Engines_Core {
           }
         }
       }
-      
+
       // Method 4: For OpenAI engine, check if we're already using Responses API
       // This is important for models that use Responses API but don't have the tag
       if ( !$isResponsesApi && method_exists( $this, 'should_use_responses_api' ) ) {
         // This is an OpenAI engine, check if it should use Responses API
         $isResponsesApi = $this->should_use_responses_api( $query->model );
       }
-      
+
       // Debug: Log grouping information
       if ( $queries_debug ) {
         error_log( '[AI Engine Queries] Grouping ' . count( $reply->needFeedbacks ) . ' function calls' );
@@ -219,11 +285,11 @@ class Meow_MWAI_Engines_Core {
           error_log( '[AI Engine Queries] All function calls will be grouped together for Responses API' );
         }
       }
-      
+
       foreach ( $reply->needFeedbacks as $idx => $needFeedback ) {
         // For Responses API, use a single key to group all function calls together
         $rawMessageKey = md5( serialize( $needFeedback['rawMessage'] ) );
-        
+
         if ( $queries_debug ) {
           error_log( '[AI Engine Queries] Function call ' . $idx . ': ' . $needFeedback['name'] . ' (key: ' . substr( $rawMessageKey, 0, 8 ) . ')' );
         }
@@ -264,16 +330,16 @@ class Meow_MWAI_Engines_Core {
 
           // Log the function result for debugging
           Meow_MWAI_Logging::log( "Function '{$needFeedback['name']}' returned: " . $resultPreview );
-          
+
           // Emit function result event if we have a callback
           if ( !empty( $streamCallback ) ) {
             // Load event helper if not already loaded
             if ( !class_exists( 'Meow_MWAI_Event' ) ) {
               require_once MWAI_PATH . '/classes/event.php';
             }
-            
+
             $functionName = $needFeedback['name'];
-            
+
             $event = Meow_MWAI_Event::function_result( $functionName )
               ->set_metadata( 'result', $resultPreview )
               ->set_metadata( 'tool_id', $needFeedback['toolId'] ?? null );
@@ -330,7 +396,11 @@ class Meow_MWAI_Engines_Core {
       }
       $model_info = $this->retrieve_model_info( $query->model );
       if ( $model_info === false ) {
-        throw new Exception( sprintf( __( "AI Engine: The model '%s' is not available.", 'ai-engine' ), $query->model ) );
+        // Provide a more helpful error message for embeddings queries without a configured environment
+        if ( $query instanceof Meow_MWAI_Query_Embed && empty( $query->envId ) ) {
+          throw new Exception( __( 'No embeddings environment is configured. Please go to Settings > Default Environments for AI > Embeddings and select an environment.', 'ai-engine' ) );
+        }
+        throw new Exception( sprintf( __( "The model '%s' is not available.", 'ai-engine' ), $query->model ) );
       }
       if ( isset( $model_info['mode'] ) ) {
         $query->mode = $model_info['mode'];
@@ -637,7 +707,7 @@ class Meow_MWAI_Engines_Core {
   /**
    * Check the connection to the AI service.
    * This should be a minimal, cost-free API call to verify credentials and connectivity.
-   * 
+   *
    * @return array {
    *     @type bool   $success      Whether the connection test was successful
    *     @type string $service      The service name (e.g., 'OpenAI', 'Anthropic')

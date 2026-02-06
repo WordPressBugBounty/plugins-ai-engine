@@ -41,9 +41,6 @@ spl_autoload_register( function ( $class ) {
     else if ( $filename === 'OpenRouter' ) {
       $filename = 'open-router';
     }
-    else if ( $filename === 'HuggingFace' ) {
-      $filename = 'hugging-face';
-    }
     else if ( $filename === 'ChatML' ) {
       $filename = 'chatml';
     }
@@ -74,13 +71,15 @@ spl_autoload_register( function ( $class ) {
     $filename = str_replace( '_', '-', $filename );
     $file = MWAI_PATH . '/classes/' . $filename . '.php';
   }
-  else if ( strpos( $class, 'MeowCommon_' ) !== false ) {
-    $filename = str_replace( 'meowcommon_', '', strtolower( $class ) );
+  else if ( strpos( $class, 'MeowKit_MWAI_' ) !== false ) {
+    // Strip MeowKit_MWAI_ prefix to get just the class name
+    $filename = str_replace( 'meowkit_mwai_', '', strtolower( $class ) );
     $filename = str_replace( '_', '-', $filename );
     $file = MWAI_PATH . '/common/' . $filename . '.php';
   }
-  else if ( strpos( $class, 'MeowCommonPro_' ) !== false ) {
-    $filename = str_replace( 'meowcommonpro_', '', strtolower( $class ) );
+  else if ( strpos( $class, 'MeowKitPro_MWAI_' ) !== false ) {
+    // Strip MeowKitPro_MWAI_ prefix to get just the class name
+    $filename = str_replace( 'meowkitpro_mwai_', '', strtolower( $class ) );
     // Special case for rest_license to maintain backward compatibility
     if ( $filename === 'rest_license' ) {
       $file = MWAI_PATH . '/common/premium/rest_license.php';
@@ -107,6 +106,8 @@ spl_autoload_register( function ( $class ) {
     else {
       // Convert camelCase to kebab-case
       $filename = strtolower( preg_replace( '/([a-z])([A-Z])/', '$1-$2', $filename ) );
+      // Convert underscores to hyphens for consistency
+      $filename = str_replace( '_', '-', $filename );
     }
     $file = MWAI_PATH . '/premium/' . $filename . '.php';
   }

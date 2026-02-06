@@ -1,7 +1,7 @@
 <?php
 
 // Params for the chatbot (front and server)
-define( 'MWAI_CHATBOT_FRONT_PARAMS', [ 'id', 'customId', 'aiName', 'userName', 'guestName', 'aiAvatar', 'userAvatar', 'guestAvatar', 'aiAvatarUrl', 'userAvatarUrl', 'guestAvatarUrl', 'textSend', 'textClear', 'imageUpload', 'fileUpload', 'multiUpload', 'fileSearch', 'mode', 'textInputPlaceholder', 'textInputMaxLength', 'textCompliance', 'startSentence', 'localMemory', 'themeId', 'window', 'icon', 'iconText', 'iconTextDelay', 'iconAlt', 'iconPosition', 'centerOpen', 'width', 'openDelay', 'iconBubble', 'windowAnimation', 'fullscreen', 'copyButton', 'headerSubtitle', 'popupTitle', 'containerType', 'headerType', 'messagesType', 'inputType', 'footerType', 'talkMode' ] );
+define( 'MWAI_CHATBOT_FRONT_PARAMS', [ 'id', 'customId', 'aiName', 'userName', 'guestName', 'aiAvatar', 'userAvatar', 'guestAvatar', 'aiAvatarUrl', 'userAvatarUrl', 'guestAvatarUrl', 'textSend', 'textClear', 'imageUpload', 'fileUpload', 'multiUpload', 'maxUploads', 'fileUploads', 'fileSearch', 'allowedMimeTypes', 'mode', 'textInputPlaceholder', 'textInputMaxLength', 'textCompliance', 'startSentence', 'localMemory', 'themeId', 'window', 'icon', 'iconText', 'iconTextDelay', 'iconAlt', 'iconPosition', 'centerOpen', 'width', 'openDelay', 'iconBubble', 'windowAnimation', 'fullscreen', 'copyButton', 'headerSubtitle', 'popupTitle', 'containerType', 'headerType', 'messagesType', 'inputType', 'footerType', 'talkMode' ] );
 
 define( 'MWAI_CHATBOT_SERVER_PARAMS', [ 'id', 'envId', 'scope', 'mode', 'contentAware', 'context', 'startSentence', 'embeddingsEnvId', 'embeddingsIndex', 'embeddingsNamespace', 'assistantId', 'instructions', 'resolution', 'voice', 'talkMode', 'model', 'temperature', 'maxTokens', 'contextMaxLength', 'maxResults', 'apiKey', 'functions', 'mcpServers', 'tools', 'historyStrategy', 'previousResponseId', 'parentBotId', 'crossSite', 'promptId', 'promptVariables', 'reasoningEffort', 'verbosity' ] );
 
@@ -135,7 +135,7 @@ class Meow_MWAI_Modules_Chatbot {
     }
 
     // Handle null or convert to string for strlen
-    $messageStr = $newMessage === null ? '' : (string)$newMessage;
+    $messageStr = $newMessage === null ? '' : (string) $newMessage;
     $length = strlen( $messageStr );
     if ( $length < 1 ) {
       Meow_MWAI_Logging::warn( 'The query was rejected - message was too short.' );
@@ -163,6 +163,7 @@ class Meow_MWAI_Modules_Chatbot {
     $actions = $this->sanitize_actions( $actions );
     $blocks = $this->sanitize_blocks( $blocks );
     $shortcuts = $this->sanitize_shortcuts( $shortcuts );
+    $shortcuts = $this->prepare_shortcuts_for_client( $shortcuts, $botId );
     $result = [
       'success' => true,
       'reply' => $reply,
@@ -207,6 +208,21 @@ class Meow_MWAI_Modules_Chatbot {
     $newFileId = $params['newFileId'] ?? null;
     $newFileIds = $params['newFileIds'] ?? [];
     $crossSite = $params['crossSite'] ?? false;
+    $shortcutId = $params['shortcutId'] ?? null;
+
+    // If shortcutId is provided, look up the actual message
+    if ( $shortcutId && empty( $newMessage ) ) {
+      $shortcutMessage = $this->get_shortcut_message( $shortcutId, $botId );
+      if ( $shortcutMessage ) {
+        $newMessage = $shortcutMessage;
+      }
+      else {
+        return $this->create_rest_response( [
+          'success' => false,
+          'message' => 'Invalid or expired shortcut.'
+        ], 400 );
+      }
+    }
 
     if ( !$this->basics_security_check( $botId, $customId, $newMessage, $newFileId ) ) {
       return $this->create_rest_response( [
@@ -307,6 +323,124 @@ class Meow_MWAI_Modules_Chatbot {
       'callback' => ['label', 'onClick'],
     ];
     return $this->sanitize_items( $shortcuts, $supported_shortcut_types, 'shortcut' );
+  }
+
+  /**
+   * Get the encryption key derived from WordPress salts.
+   *
+   * @return string The 32-byte encryption key.
+   */
+  private function get_shortcut_encryption_key() {
+    return substr( hash( 'sha256', wp_salt( 'auth' ) . 'mwai_shortcuts' ), 0, 32 );
+  }
+
+  /**
+   * Encrypt shortcut data for safe transmission to the client.
+   *
+   * @param array $data The data to encrypt (message, botId).
+   * @return string|null The base64-encoded encrypted payload, or null on failure.
+   */
+  private function encrypt_shortcut_data( $data ) {
+    $key = $this->get_shortcut_encryption_key();
+    $iv = openssl_random_pseudo_bytes( 16 );
+    $json = json_encode( $data );
+    $encrypted = openssl_encrypt( $json, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv );
+    if ( $encrypted === false ) {
+      return null;
+    }
+    return base64_encode( $iv . $encrypted );
+  }
+
+  /**
+   * Decrypt shortcut data received from the client.
+   *
+   * @param string $payload The base64-encoded encrypted payload.
+   * @return array|null The decrypted data, or null on failure.
+   */
+  private function decrypt_shortcut_data( $payload ) {
+    $key = $this->get_shortcut_encryption_key();
+    $decoded = base64_decode( $payload, true );
+    if ( $decoded === false || strlen( $decoded ) < 17 ) {
+      return null;
+    }
+    $iv = substr( $decoded, 0, 16 );
+    $encrypted = substr( $decoded, 16 );
+    $decrypted = openssl_decrypt( $encrypted, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv );
+    if ( $decrypted === false ) {
+      return null;
+    }
+    return json_decode( $decrypted, true );
+  }
+
+  /**
+   * Prepare shortcuts for client by replacing messages with encrypted shortcutIds.
+   * The messages are encrypted and can only be decrypted server-side.
+   * This keeps the prompt content private and not exposed in the browser.
+   *
+   * @param array $shortcuts The shortcuts to prepare.
+   * @param string $botId The bot ID for validation.
+   * @return array The prepared shortcuts with encrypted shortcutIds instead of messages.
+   */
+  public function prepare_shortcuts_for_client( $shortcuts, $botId ) {
+    if ( empty( $shortcuts ) ) {
+      return $shortcuts;
+    }
+
+    $prepared = [];
+    foreach ( $shortcuts as $shortcut ) {
+      $type = $shortcut['type'] ?? '';
+      $data = $shortcut['data'] ?? [];
+
+      // Only process shortcuts that have a message (not callbacks)
+      if ( isset( $data['message'] ) && !empty( $data['message'] ) ) {
+        // Encrypt the message and botId
+        $shortcutId = $this->encrypt_shortcut_data( [
+          'message' => $data['message'],
+          'botId' => $botId,
+        ] );
+
+        if ( $shortcutId ) {
+          // Replace message with encrypted shortcutId
+          unset( $data['message'] );
+          $data['shortcutId'] = $shortcutId;
+        }
+      }
+
+      $prepared[] = [
+        'type' => $type,
+        'data' => $data,
+      ];
+    }
+
+    return $prepared;
+  }
+
+  /**
+   * Decrypt and retrieve a shortcut message from its encrypted ID.
+   *
+   * @param string $shortcutId The encrypted shortcut ID.
+   * @param string $botId The bot ID for validation.
+   * @return string|null The message, or null if decryption fails or botId mismatches.
+   */
+  public function get_shortcut_message( $shortcutId, $botId ) {
+    if ( empty( $shortcutId ) ) {
+      return null;
+    }
+
+    $shortcut_data = $this->decrypt_shortcut_data( $shortcutId );
+
+    if ( !$shortcut_data || !isset( $shortcut_data['message'] ) ) {
+      Meow_MWAI_Logging::warn( "Shortcut decryption failed for botId: {$botId}" );
+      return null;
+    }
+
+    // Validate botId matches (security check)
+    if ( isset( $shortcut_data['botId'] ) && $shortcut_data['botId'] !== $botId ) {
+      Meow_MWAI_Logging::warn( "Shortcut botId mismatch: expected {$shortcut_data['botId']}, got {$botId}" );
+      return null;
+    }
+
+    return $shortcut_data['message'];
   }
 
   #region Messages Integrity Check
@@ -511,9 +645,9 @@ class Meow_MWAI_Modules_Chatbot {
           $isIMG = in_array( $mimeType, [ 'image/jpeg', 'image/png', 'image/gif', 'image/webp' ] );
 
           if ( $isIMG ) {
-            $query->set_file( Meow_MWAI_Query_DroppedFile::from_url( $url, 'vision', $mimeType ) );
+            $query->add_file( Meow_MWAI_Query_DroppedFile::from_url( $url, 'analysis', $mimeType ) );
             $fileId = $this->core->files->get_id_from_refId( $fileForImage );
-            $this->core->files->update_purpose( $fileId, 'vision' );
+            $this->core->files->update_purpose( $fileId, 'analysis' );
           }
         }
         else {
@@ -592,49 +726,26 @@ class Meow_MWAI_Modules_Chatbot {
           unset( $params['embeddingsNamespace'] );
           unset( $params['contentAware'] );
           unset( $params['context'] );
-          
+
           // Clear function calling and MCP servers
           unset( $params['functions'] );
           unset( $params['mcpServers'] );
-          
+
           // Clear tools
           unset( $params['tools'] );
-          
+
           // Clear temperature, reasoning, verbosity as they're configured in the prompt
           unset( $params['temperature'] );
           unset( $params['reasoningEffort'] );
           unset( $params['verbosity'] );
           unset( $params['maxTokens'] );
         }
-        
+
         $query->inject_params( $params );
-        
+
         // Handle Prompt mode specifics
         if ( $mode === 'prompt' && !empty( $params['promptId'] ) ) {
-          $promptData = [
-            'id' => $params['promptId']
-          ];
-          
-          // TODO: Prompt Variables support - might be added later
-          // Add prompt version if provided
-          // if ( !empty( $params['promptVersion'] ) ) {
-          //   $promptData['version'] = $params['promptVersion'];
-          // }
-          
-          // Add prompt variables if provided
-          // if ( !empty( $params['promptVariables'] ) ) {
-          //   try {
-          //     $variables = is_string( $params['promptVariables'] ) ? 
-          //       json_decode( $params['promptVariables'], true ) : 
-          //       $params['promptVariables'];
-          //     if ( $variables ) {
-          //       $promptData['variables'] = $variables;
-          //     }
-          //   } catch ( Exception $e ) {
-          //     // Invalid JSON, skip variables
-          //   }
-          // }
-          
+          $promptData = [ 'id' => $params['promptId'] ];
           $query->setExtraParam( 'prompt', $promptData );
         }
 
@@ -661,81 +772,105 @@ class Meow_MWAI_Modules_Chatbot {
 
         // Support for Uploaded Image/Files
         if ( !empty( $filesToProcess ) ) {
-          // For now, we only process the first file to maintain backward compatibility
-          // TODO: In the future, we could support multiple files in the query
-          $fileToProcess = $filesToProcess[0];
+          // Process all files for multi-upload support
+          foreach ( $filesToProcess as $fileToProcess ) {
+            // Get extension and mime type
+            $isImage = $this->core->files->is_image( $fileToProcess );
 
-          // Get extension and mime type
-          $isImage = $this->core->files->is_image( $fileToProcess );
+            if ( $mode === 'assistant' && !$isImage ) {
+              // DEPRECATED: Assistants API and File Search are deprecated
+              // After August 26, 2026, this entire block should be removed
+              error_log( '[AI Engine] WARNING: Assistant File Search is deprecated and will be removed after August 26, 2026. Consider using regular chat with PDF uploads instead.' );
 
-          if ( $mode === 'assistant' && !$isImage ) {
-            $url = $this->core->files->get_path( $fileToProcess );
-            $data = $this->core->files->get_data( $fileToProcess );
-            $openai = Meow_MWAI_Engines_Factory::get_openai( $this->core, $query->envId );
-            $filename = basename( $url );
+              $url = $this->core->files->get_path( $fileToProcess );
+              $data = $this->core->files->get_data( $fileToProcess );
+              $openai = Meow_MWAI_Engines_Factory::get_openai( $this->core, $query->envId );
+              $filename = basename( $url );
 
-            // Upload the file
-            $file = $openai->upload_file( $filename, $data, 'assistants' );
+              // Upload the file
+              $file = $openai->upload_file( $filename, $data, 'assistants' );
 
-            // Create a store
-            if ( empty( $storeId ) ) {
-              $chatbotName = 'mwai_' . strtolower( !empty( $chatbot['name'] ) ? $chatbot['name'] : 'default' );
-              if ( !empty( $query->chatId ) ) {
-                $chatbotName .= '_' . $query->chatId;
+              // Create a store
+              if ( empty( $storeId ) ) {
+                $chatbotName = 'mwai_' . strtolower( !empty( $chatbot['name'] ) ? $chatbot['name'] : 'default' );
+                if ( !empty( $query->chatId ) ) {
+                  $chatbotName .= '_' . $query->chatId;
+                }
+                $metadata = [];
+                if ( !empty( $chatbot['assistantId'] ) ) {
+                  $metadata['assistantId'] = $chatbot['assistantId'];
+                }
+                if ( !empty( $query->chatId ) ) {
+                  $metadata['chatId'] = $query->chatId;
+                }
+                $expiry = $this->core->get_option( 'image_expires' );
+                $storeId = $openai->create_vector_store( $chatbotName, $expiry, $metadata );
+                $query->setStoreId( $storeId );
               }
-              $metadata = [];
-              if ( !empty( $chatbot['assistantId'] ) ) {
-                $metadata['assistantId'] = $chatbot['assistantId'];
+
+              // Add the file to the store - wait a moment for store to be ready
+              sleep( 1 );
+              $storeFileId = $openai->add_vector_store_file( $storeId, $file['id'] );
+
+              if ( empty( $storeFileId ) ) {
+                throw new Exception( 'Failed to add file to vector store.' );
               }
-              if ( !empty( $query->chatId ) ) {
-                $metadata['chatId'] = $query->chatId;
+
+              // Update the local file with the OpenAI RefId, StoreId and StoreFileId
+              $openAiRefId = $file['id'];
+              $internalFileId = $this->core->files->get_id_from_refId( $fileToProcess );
+              $this->core->files->update_refId( $internalFileId, $openAiRefId );
+              $this->core->files->update_envId( $internalFileId, $query->envId );
+              $this->core->files->update_purpose( $internalFileId, 'analysis' );
+              $this->core->files->add_metadata( $internalFileId, 'assistant_storeId', $storeId );
+              $this->core->files->add_metadata( $internalFileId, 'assistant_storeFileId', $storeFileId );
+              $fileToProcess = $openAiRefId;
+              $scope = $params['fileSearch'];
+              if ( $scope === 'discussion' || $scope === 'user' || $scope === 'assistant' ) {
+                $id = $this->core->files->get_id_from_refId( $fileToProcess );
+                $this->core->files->add_metadata( $id, 'assistant_scope', $scope );
               }
-              $expiry = $this->core->get_option( 'image_expires' );
-              $storeId = $openai->create_vector_store( $chatbotName, $expiry, $metadata );
-              $query->setStoreId( $storeId );
             }
+            else {
+              // Keep track of the internal file ID (before any OpenAI processing)
+              // Important: $fileToProcess is our internal database refId, not OpenAI's file_id
+              $internalRefId = $fileToProcess;
+              $url = $this->core->files->get_url( $internalRefId );
+              $mimeType = $this->core->files->get_mime_type( $internalRefId );
+              $isIMG = in_array( $mimeType, [ 'image/jpeg', 'image/png', 'image/gif', 'image/webp' ] );
 
-            // Add the file to the store - wait a moment for store to be ready
-            sleep( 1 );
-            $storeFileId = $openai->add_vector_store_file( $storeId, $file['id'] );
+              // Create DroppedFile object - provider-agnostic approach
+              // Images use URL (can be sent as base64 or URL in messages)
+              // PDFs use refId (engines will upload to their Files API as needed)
+              if ( $isIMG ) {
+                $droppedFile = Meow_MWAI_Query_DroppedFile::from_url( $url, 'analysis', $mimeType );
+              }
+              else {
+                // For PDFs and documents, use refId so engines can access file data directly
+                $droppedFile = Meow_MWAI_Query_DroppedFile::from_refId( $internalRefId, 'analysis', $mimeType );
+              }
 
-            if ( empty( $storeFileId ) ) {
-              throw new Exception( 'Failed to add file to vector store.' );
+              // IMPORTANT: Always use add_file() to add to attachedFiles array
+              // This is the unified approach for both single and multi-file uploads
+              // Engines will check attachedFiles array first, then fall back to attachedFile (legacy)
+              $query->add_file( $droppedFile );
+
+              // Update metadata using the internal refId (not OpenAI file ID)
+              $fileId = $this->core->files->get_id_from_refId( $internalRefId );
+              $this->core->files->update_envId( $fileId, $query->envId );
+              $this->core->files->update_purpose( $fileId, 'analysis' );
+              $this->core->files->add_metadata( $fileId, 'query_envId', $query->envId );
+              $this->core->files->add_metadata( $fileId, 'query_session', $query->session );
             }
-
-            // Update the local file with the OpenAI RefId, StoreId and StoreFileId
-            $openAiRefId = $file['id'];
-            $internalFileId = $this->core->files->get_id_from_refId( $fileToProcess );
-            $this->core->files->update_refId( $internalFileId, $openAiRefId );
-            $this->core->files->update_envId( $internalFileId, $query->envId );
-            $this->core->files->update_purpose( $internalFileId, 'assistant-in' );
-            $this->core->files->add_metadata( $internalFileId, 'assistant_storeId', $storeId );
-            $this->core->files->add_metadata( $internalFileId, 'assistant_storeFileId', $storeFileId );
-            $fileToProcess = $openAiRefId;
-            $scope = $params['fileSearch'];
-            if ( $scope === 'discussion' || $scope === 'user' || $scope === 'assistant' ) {
-              $id = $this->core->files->get_id_from_refId( $fileToProcess );
-              $this->core->files->add_metadata( $id, 'assistant_scope', $scope );
-            }
-          }
-          else {
-            $url = $this->core->files->get_url( $fileToProcess );
-            $mimeType = $this->core->files->get_mime_type( $fileToProcess );
-            $isIMG = in_array( $mimeType, [ 'image/jpeg', 'image/png', 'image/gif', 'image/webp' ] );
-            $purposeType = $isIMG ? 'vision' : 'files';
-            $query->set_file( Meow_MWAI_Query_DroppedFile::from_url( $url, $purposeType, $mimeType ) );
-            $fileId = $this->core->files->get_id_from_refId( $fileToProcess );
-            $this->core->files->update_envId( $fileId, $query->envId );
-            $this->core->files->update_purpose( $fileId, $purposeType );
-            $this->core->files->add_metadata( $fileId, 'query_envId', $query->envId );
-            $this->core->files->add_metadata( $fileId, 'query_session', $query->session );
           }
         }
 
         // Takeover
         $takeoverAnswer = apply_filters( 'mwai_chatbot_takeover', null, $query, $params );
         if ( !empty( $takeoverAnswer ) ) {
-          $rawText = apply_filters( 'mwai_chatbot_reply', $takeoverAnswer, $query, $params, [] );
+          $reply = new Meow_MWAI_Reply( $query );
+          $reply->result = $takeoverAnswer;
+          $rawText = apply_filters( 'mwai_chatbot_reply', $takeoverAnswer, $reply, $params, [] );
           return [
             'reply' => $rawText,
             'chatId' => $this->core->fix_chat_id( $query, $params ),
@@ -816,7 +951,7 @@ class Meow_MWAI_Modules_Chatbot {
         $extra['responseId'] = $reply->id;
         $extra['responseDate'] = gmdate( 'Y-m-d H:i:s' ); // Track age for 30-day expiry
       }
-      $rawText = apply_filters( 'mwai_chatbot_reply', $rawText, $query, $params, $extra );
+      $rawText = apply_filters( 'mwai_chatbot_reply', $rawText, $reply, $params, $extra );
 
       // Integrity Check: We need to store the checksum of the messages sent by the client.
       $stored_messages = $client_messages;
@@ -1001,7 +1136,7 @@ class Meow_MWAI_Modules_Chatbot {
     $frontParams = [];
     // Define text parameters that need sanitization (excluding those that support HTML)
     $textParams = ['aiName', 'userName', 'guestName', 'textSend', 'textClear', 'textInputPlaceholder',
-      'startSentence', 'iconText', 'iconAlt', 'headerSubtitle', 'popupTitle'];
+      'startSentence', 'iconText', 'iconAlt', 'headerSubtitle', 'popupTitle', 'allowedMimeTypes'];
     // Parameters that support HTML content
     $htmlParams = ['textCompliance'];
     // Boolean parameters that need special handling
@@ -1028,9 +1163,11 @@ class Meow_MWAI_Modules_Chatbot {
           $value = $atts[$param];
           if ( is_bool( $value ) ) {
             $frontParams[$param] = $value;
-          } else if ( is_string( $value ) ) {
+          }
+          else if ( is_string( $value ) ) {
             $frontParams[$param] = !empty( $value ) && $value !== 'false' && $value !== '0' && $value !== 'no';
-          } else {
+          }
+          else {
             $frontParams[$param] = !empty( $value );
           }
         }
@@ -1044,12 +1181,14 @@ class Meow_MWAI_Modules_Chatbot {
           // Convert to proper boolean for chatbot defaults too
           // Handle various boolean representations
           $value = $chatbot[$param];
-          
+
           if ( is_bool( $value ) ) {
             $frontParams[$param] = $value;
-          } else if ( is_string( $value ) ) {
+          }
+          else if ( is_string( $value ) ) {
             $frontParams[$param] = !empty( $value ) && $value !== 'false' && $value !== '0';
-          } else {
+          }
+          else {
             $frontParams[$param] = !empty( $value );
           }
         }
@@ -1063,6 +1202,19 @@ class Meow_MWAI_Modules_Chatbot {
         $frontParams[$param] = $this->core->do_placeholders( $frontParams[$param] );
       }
     }
+
+    // Ensure upload params are synced
+    // fileUpload (checkbox) determines if uploads are enabled
+    // maxUploads (number) determines how many files can be uploaded
+    $fileUploadEnabled = !empty( $frontParams['fileUpload'] ) || !empty( $frontParams['imageUpload'] );
+    $maxFiles = isset( $frontParams['maxUploads'] ) ? max( 1, (int) $frontParams['maxUploads'] ) : 1;
+
+    // Sync all params for backward compatibility
+    $frontParams['fileUpload'] = $fileUploadEnabled;
+    $frontParams['imageUpload'] = $fileUploadEnabled;
+    $frontParams['fileUploads'] = $fileUploadEnabled ? $maxFiles : 0;
+    $frontParams['multiUpload'] = $fileUploadEnabled && $maxFiles > 1;
+    $frontParams['maxUploads'] = $maxFiles;
 
     // Server Params
     // NOTE: We don't need the server params for the chatbot if there are no overrides, it means
@@ -1149,7 +1301,9 @@ class Meow_MWAI_Modules_Chatbot {
     $shortcuts = apply_filters( 'mwai_chatbot_shortcuts', [], $filterParams );
     $frontSystem['actions'] = $this->sanitize_actions( $actions );
     $frontSystem['blocks'] = $this->sanitize_blocks( $blocks );
-    $frontSystem['shortcuts'] = $this->sanitize_shortcuts( $shortcuts );
+    $shortcuts = $this->sanitize_shortcuts( $shortcuts );
+    $shortcuts = $this->prepare_shortcuts_for_client( $shortcuts, $botId );
+    $frontSystem['shortcuts'] = $shortcuts;
 
     // Client-side: Prepare JSON for Front Params and System Params
     $theme = isset( $frontParams['themeId'] ) ? $this->core->get_theme( $frontParams['themeId'] ) : null;

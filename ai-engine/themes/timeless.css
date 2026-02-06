@@ -246,6 +246,7 @@
   --mwai-backgroundPrimaryColor: #fafafa;
   --mwai-backgroundHeaderColor: linear-gradient(130deg, #2831dc 0%, #09a9f8 100%);
   --mwai-bubbleColor: #2768db;
+  --mwai-iconSize: 60px;
   --mwai-accentColor: #2768db;
   --mwai-headerColor: white;
   --mwai-conversationsBackgroundColor: white;
@@ -406,6 +407,10 @@
   background: var(--mwai-backgroundUserColor);
   color: white;
 }
+.mwai-timeless-theme .mwai-conversation .mwai-reply.mwai-user .mwai-filename {
+  color: white;
+  border-color: var(--mwai-backgroundPrimaryColor);
+}
 .mwai-timeless-theme .mwai-conversation.mwai-terminal {
   --mwai-terminal-active-color: var(--mwai-accentColor);
 }
@@ -423,9 +428,9 @@
 .mwai-timeless-theme .mwai-text .mwai-filename {
   display: flex;
   text-decoration: none;
-  border: 1px solid var(--mwai-backgroundPrimaryColor);
+  border: 1px solid var(--mwai-borderColor);
   border-radius: var(--mwai-borderRadius);
-  color: white;
+  color: var(--mwai-fontColor);
   padding: 5px 10px;
   margin-bottom: 10px;
 }
@@ -1301,11 +1306,10 @@
 .mwai-timeless-theme .mwai-files {
   display: flex;
   flex-direction: column;
+  gap: 8px;
   padding: var(--mwai-spacing);
   background: var(--mwai-backgroundSecondaryColor);
   border-top: 1px solid var(--mwai-backgroundPrimaryColor);
-  max-height: 150px;
-  overflow-y: auto;
 }
 .mwai-timeless-theme .mwai-files::-webkit-scrollbar {
   width: 6px;
@@ -1547,7 +1551,7 @@
 .mwai-timeless-theme .mwai-text {
   overflow-wrap: anywhere;
 }
-.mwai-timeless-theme .mwai-text img {
+.mwai-timeless-theme .mwai-text img, .mwai-timeless-theme .mwai-text svg {
   max-width: 100%;
 }
 .mwai-timeless-theme .mwai-text div p:first-child {
@@ -1666,8 +1670,9 @@
 }
 .mwai-timeless-theme.mwai-window .mwai-header {
   display: none;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
+  padding: 0 0 0 15px;
   border-radius: var(--mwai-borderRadius) var(--mwai-borderRadius) 0 0;
   background: var(--mwai-backgroundHeaderColor);
 }
@@ -1691,7 +1696,7 @@
   position: absolute;
   height: 13px;
   width: 13px;
-  border: 1px solid var(--mwai-headerColor);
+  border: 1.2px solid var(--mwai-headerColor);
 }
 .mwai-timeless-theme.mwai-window .mwai-header .mwai-buttons .mwai-resize-button:hover:before {
   width: 16px;
@@ -1718,7 +1723,7 @@
   cursor: pointer;
   position: absolute;
   height: 22px;
-  width: 1px;
+  width: 1.2px;
   background-color: var(--mwai-headerColor);
 }
 .mwai-timeless-theme.mwai-window .mwai-header .mwai-buttons .mwai-close-button:hover:before {
@@ -1991,25 +1996,25 @@
   opacity: 1 !important;
 }
 .mwai-timeless-theme.mwai-bubble .mwai-trigger .mwai-icon-container {
-  background: var(--mwai-bubbleColor) !important;
-  width: 60px !important;
-  height: 60px !important;
-  border-radius: 100% !important;
+  background: var(--mwai-bubbleColor);
+  width: var(--mwai-iconSize, 60px);
+  height: var(--mwai-iconSize, 60px);
+  border-radius: 100%;
   transition: all 0.2s ease-out;
-  display: flex !important;
-  justify-content: center !important;
-  align-items: center !important;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 .mwai-timeless-theme.mwai-bubble .mwai-trigger .mwai-icon-container .mwai-icon {
-  max-width: 50% !important;
-  max-height: 50% !important;
-  filter: none !important;
+  max-width: 50%;
+  max-height: 50%;
+  filter: none;
 }
 .mwai-timeless-theme.mwai-bubble .mwai-trigger .mwai-icon-container .mwai-icon:hover {
-  transform: none !important;
+  transform: none;
 }
 .mwai-timeless-theme.mwai-bubble .mwai-trigger .mwai-icon-container .mwai-emoji {
-  font-size: 30px !important;
+  font-size: calc(var(--mwai-iconSize, 60px) / 2);
 }
 .mwai-timeless-theme.mwai-bubble .mwai-trigger .mwai-icon-container:hover {
   cursor: pointer;
@@ -2442,10 +2447,31 @@
   margin-top: 0;
   border: 2px solid var(--mwai-backgroundPrimaryColor);
   padding: calc(var(--mwai-spacing) / 2);
+  padding-right: calc(var(--mwai-spacing) / 2 + 10px);
   border-radius: var(--mwai-borderRadius);
-  display: flex;
-  justify-content: center;
   font-size: 80%;
+  text-align: center;
+  max-height: 120px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mwai-backgroundHeaderColor) transparent;
+}
+.mwai-timeless-theme .mwai-realtime .mwai-last-transcript::-webkit-scrollbar {
+  width: 6px;
+}
+.mwai-timeless-theme .mwai-realtime .mwai-last-transcript::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+.mwai-timeless-theme .mwai-realtime .mwai-last-transcript::-webkit-scrollbar-thumb {
+  background: var(--mwai-backgroundHeaderColor);
+  border-radius: 10px;
+}
+.mwai-timeless-theme .mwai-realtime .mwai-last-transcript::-webkit-scrollbar-thumb:hover {
+  background: var(--mwai-primaryColor);
 }
 .mwai-timeless-theme .mwai-realtime .mwai-statistics {
   display: grid;
@@ -3005,5 +3031,3 @@
   background-color: rgba(211, 47, 47, 0.08);
   color: #b71c1c;
 }
-
-/*# sourceMappingURL=timeless.css.map */

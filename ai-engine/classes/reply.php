@@ -9,10 +9,13 @@ class Meow_MWAI_Reply implements JsonSerializable {
     'completion_tokens' => 0,
     'total_tokens' => 0,
     'price' => null,
+    'accuracy' => 'none', // 'none', 'estimated', 'tokens', 'price', 'full'
   ];
-  public $usageAccuracy = 'none'; // 'none', 'estimated', 'tokens', 'price', 'full'
+  // TODO: Remove after January 2026 - Use $usage['accuracy'] instead
+  public $usageAccuracy = 'none';
   public $query = null;
   public $type = 'text';
+  public $model = null; // Actual model used by the API (may differ from query model)
 
   // Code interpreter code (separate from main content)
   public $contentCode = '';
@@ -63,6 +66,7 @@ class Meow_MWAI_Reply implements JsonSerializable {
 
   public function set_usage_accuracy( $accuracy ) {
     $this->usageAccuracy = $accuracy;
+    $this->usage['accuracy'] = $accuracy;
   }
 
   public function set_id( $id ) {
@@ -71,6 +75,10 @@ class Meow_MWAI_Reply implements JsonSerializable {
 
   public function set_type( $type ) {
     $this->type = $type;
+  }
+
+  public function set_model( $model ) {
+    $this->model = $model;
   }
 
   public function get_total_tokens() {
@@ -156,14 +164,13 @@ class Meow_MWAI_Reply implements JsonSerializable {
   */
   public function set_choices( $choices, $rawMessage = null ) {
     $this->results = [];
-    
+
     // Initialize feedback arrays at the start to accumulate across all choices
     // This is important for engines like Google that split multiple function calls
     // into separate choices
     $this->needFeedbacks = [];
     $this->needClientActions = [];
-    
-    
+
     if ( is_array( $choices ) ) {
       foreach ( $choices as $choice ) {
 

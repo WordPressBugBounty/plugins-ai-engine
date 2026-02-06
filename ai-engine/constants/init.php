@@ -112,10 +112,12 @@ define( 'MWAI_OPTIONS', [
   'search_frontend_env_id' => null,
   'search_website_context' => 'This is a website with useful information and content.',
   'module_forms' => false,
+  'forms_editor' => true,
   'module_blocks' => false,
   'module_playground' => true,
   'module_generator_content' => true,
   'module_generator_images' => true,
+  'module_generator_videos' => true,
   'module_moderation' => false,
   'module_statistics' => false,
   'module_finetunes' => false,
@@ -153,8 +155,6 @@ define( 'MWAI_OPTIONS', [
   'ai_models_usage' => [],
   'ai_streaming' => true,
   'ai_responses_api' => true,
-  'ai_fast_default_env' => null,
-  'ai_fast_default_model' => MWAI_FALLBACK_MODEL,
   'ai_default_env' => null,
   'ai_default_model' => MWAI_FALLBACK_MODEL,
   'ai_envs' => [
@@ -177,16 +177,31 @@ define( 'MWAI_OPTIONS', [
 
   'mcp_envs' => [],
 
+  'ai_fast_default_env' => null,
+  'ai_fast_default_model' => MWAI_FALLBACK_MODEL,
   'ai_embeddings_default_env' => null,
   'ai_embeddings_default_model' => 'text-embedding-3-small',
   'ai_embeddings_default_dimensions' => 1536,
+  'ai_vision_default_env' => null,
+  'ai_vision_default_model' => 'gpt-4o-mini',
+  'ai_images_default_env' => null,
+  'ai_images_default_model' => 'dall-e-3-hd',
+  'ai_audio_default_env' => null,
+  'ai_audio_default_model' => 'whisper-1',
+  'ai_json_default_env' => null,
+  'ai_json_default_model' => 'gpt-4o-mini',
   'embeddings_default_env' => null,
   'embeddings_envs' => [
     [
-      'name' => 'Pinecone',
-      'type' => 'pinecone',
+      'name' => 'Chroma',
+      'type' => 'chroma',
       'apikey' => '',
-      'server' => ''
+      'server' => 'https://api.trychroma.com',
+      'deployment' => 'cloud',
+      'tenant' => '',
+      'database' => 'default_database',
+      'collection' => 'mwai',
+      'embeddings_source' => 'Qwen/Qwen3-Embedding-0.6B'
     ]
   ],
   'embeddings' => [

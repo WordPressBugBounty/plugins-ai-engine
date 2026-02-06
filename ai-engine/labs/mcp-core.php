@@ -242,10 +242,31 @@ class Meow_MWAI_Labs_MCP_Core {
       ],
       'wp_get_post' => [
         'name' => 'wp_get_post',
-        'description' => 'Get a single post by ID (all fields inc. full content).',
+        'description' => 'Get basic post data by ID (title, content, status, dates). For complete data including all meta and terms, use wp_get_post_snapshot instead.',
         'inputSchema' => [
           'type' => 'object',
           'properties' => [ 'ID' => [ 'type' => 'integer' ] ],
+          'required' => [ 'ID' ],
+        ],
+      ],
+      'wp_get_post_snapshot' => [
+        'name' => 'wp_get_post_snapshot',
+        'description' => 'Get complete post data in ONE call: all post fields, all meta, all terms/taxonomies, featured image, and author. Use this for WooCommerce products, events, or any post type where you need full context. Reduces 10-20 API calls to just 1. Returns structured JSON with post, meta, terms, thumbnail, and author keys.',
+        'inputSchema' => [
+          'type' => 'object',
+          'properties' => [
+            'ID' => [ 'type' => 'integer', 'description' => 'Post ID' ],
+            'include' => [
+              'type' => 'array',
+              'description' => 'Optional: fields to include (default: all). Options: meta, terms, thumbnail, author',
+              'items' => [ 'type' => 'string' ],
+            ],
+            'exclude' => [
+              'type' => 'array',
+              'description' => 'Optional: fields to exclude from post data. Options: content (useful for posts with huge content like many galleries)',
+              'items' => [ 'type' => 'string' ],
+            ],
+          ],
           'required' => [ 'ID' ],
         ],
       ],
@@ -268,7 +289,7 @@ class Meow_MWAI_Labs_MCP_Core {
       ],
       'wp_update_post' => [
         'name' => 'wp_update_post',
-        'description' => 'Update a post – pass ID plus a “fields” object containing any post fields to update; meta_input adds/updates custom fields. post_category (array of term IDs) REPLACES existing categories; use wp_add_post_terms to append.',
+        'description' => 'Update post fields and/or meta in ONE call. Pass ID + "fields" object (post_title, post_content, post_status, etc.) and/or "meta_input" object for custom fields. Efficient for WooCommerce products: update title + price + stock together. Note: post_category REPLACES categories; use wp_add_post_terms to append instead. Use schedule_for to easily schedule posts.',
         'inputSchema' => [
           'type' => 'object',
           'properties' => [
@@ -289,6 +310,10 @@ class Meow_MWAI_Labs_MCP_Core {
               'type' => 'object',
               'description' => 'Associative array of custom fields.'
             ],
+            'schedule_for' => [
+              'type' => 'string',
+              'description' => 'Schedule post for future publication. Provide local datetime (e.g., "2026-02-02 09:00:00"). Automatically sets status to "future" and calculates GMT from WordPress timezone.'
+            ],
           ],
           'required' => [ 'ID' ],
         ],
@@ -305,11 +330,26 @@ class Meow_MWAI_Labs_MCP_Core {
           'required' => [ 'ID' ],
         ],
       ],
+      'wp_alter_post' => [
+        'name' => 'wp_alter_post',
+        'description' => 'Search-and-replace inside a post field without re-uploading the entire content. Efficient for making small edits to long content. Supports regex patterns (PHP-PCRE with delimiters like /pattern/i).',
+        'inputSchema' => [
+          'type' => 'object',
+          'properties' => [
+            'ID' => [ 'type' => 'integer', 'description' => 'Post ID.' ],
+            'field' => [ 'type' => 'string', 'description' => 'Field to modify: post_content, post_excerpt, or post_title.' ],
+            'search' => [ 'type' => 'string', 'description' => 'Text or regex pattern to search for.' ],
+            'replace' => [ 'type' => 'string', 'description' => 'Replacement text.' ],
+            'regex' => [ 'type' => 'boolean', 'description' => 'Treat search as regex pattern (default: false).' ],
+          ],
+          'required' => [ 'ID', 'field', 'search', 'replace' ],
+        ],
+      ],
 
       /* -------- Post-meta -------- */
       'wp_get_post_meta' => [
         'name' => 'wp_get_post_meta',
-        'description' => 'Retrieve post meta. Provide "key" to fetch a single value; omit to fetch all custom fields.',
+        'description' => 'Get specific post meta field(s). Provide "key" to fetch a single value; omit to fetch all custom fields. If you need ALL meta along with post data and terms, use wp_get_post_snapshot instead for efficiency.',
         'inputSchema' => [
           'type' => 'object',
           'properties' => [
@@ -321,7 +361,7 @@ class Meow_MWAI_Labs_MCP_Core {
       ],
       'wp_update_post_meta' => [
         'name' => 'wp_update_post_meta',
-        'description' => 'Create or update one or more custom fields for a post.',
+        'description' => 'Update post meta efficiently. Use "meta" object to update MULTIPLE fields at once (e.g., {_price: "19.99", _stock: "50", _sku: "WIDGET"}), or use "key"+"value" for a single field. Essential for WooCommerce products and custom post types.',
         'inputSchema' => [
           'type' => 'object',
           'properties' => [
@@ -441,7 +481,7 @@ class Meow_MWAI_Labs_MCP_Core {
       ],
       'wp_add_post_terms' => [
         'name' => 'wp_add_post_terms',
-        'description' => 'Attach terms to a post.',
+        'description' => 'Attach or replace terms for a post. Set "append=true" to ADD terms to existing ones, or "append=false" (default) to REPLACE all terms. Use for categories, tags, or WooCommerce attributes (pa_color, pa_size, etc.).',
         'inputSchema' => [
           'type' => 'object',
           'properties' => [
@@ -470,16 +510,43 @@ class Meow_MWAI_Labs_MCP_Core {
       ],
       'wp_upload_media' => [
         'name' => 'wp_upload_media',
-        'description' => 'Download file from URL and add to Media Library.',
+        'description' => 'Upload a file to the WordPress Media Library. Provide either a url (WordPress will download it) or base64-encoded content with a filename. Base64 mode is useful for local files but doubles the payload size — keep files under a few MB to avoid memory or timeout issues.',
         'inputSchema' => [
           'type' => 'object',
           'properties' => [
-            'url' => [ 'type' => 'string' ],
+            'url' => [
+              'type' => 'string',
+              'description' => 'URL to download the file from. Use this OR base64/filename.',
+            ],
+            'base64' => [
+              'type' => 'string',
+              'description' => 'Base64-encoded file content. Must be used together with filename.',
+            ],
+            'filename' => [
+              'type' => 'string',
+              'description' => 'Filename with extension (e.g. photo.jpg). Required when using base64.',
+            ],
             'title' => [ 'type' => 'string' ],
             'description' => [ 'type' => 'string' ],
             'alt' => [ 'type' => 'string' ],
           ],
-          'required' => [ 'url' ],
+        ],
+      ],
+      'wp_upload_request' => [
+        'name' => 'wp_upload_request',
+        'description' => 'Upload a local file to the WordPress Media Library via a temporary upload endpoint. Use this instead of wp_upload_media when you have a local file (not a URL) — passing large base64 strings through MCP is impractical and will likely exceed context limits. Call this tool with the filename and optional metadata; it returns a one-time upload URL. Then use curl to POST the file: curl -X POST -F "file=@/local/path/file.jpg" "<upload_url>". The upload URL expires after 5 minutes and can only be used once.',
+        'inputSchema' => [
+          'type' => 'object',
+          'properties' => [
+            'filename' => [
+              'type' => 'string',
+              'description' => 'Filename with extension (e.g. photo.jpg).',
+            ],
+            'title' => [ 'type' => 'string' ],
+            'description' => [ 'type' => 'string' ],
+            'alt' => [ 'type' => 'string' ],
+          ],
+          'required' => [ 'filename' ],
         ],
       ],
       'wp_update_media' => [
@@ -541,33 +608,6 @@ class Meow_MWAI_Labs_MCP_Core {
         ],
       ],
 
-      /* -------- Tools -------- */
-      // Note: mcp_ping is now handled by the base MCP class
-
-      /* -------- OpenAI Deep Research Tools -------- */
-      'search' => [
-        'name' => 'search',
-        'description' => 'Searches through all published posts and pages on the "' . get_bloginfo( 'name' ) . '" WordPress website' . ( get_bloginfo( 'description' ) ? ' - ' . get_bloginfo( 'description' ) : '' ) . '. This tool performs full-text search across titles and content to find relevant articles, blog posts, and static pages. The search results include article summaries and URLs for citation purposes. Use this to find information about topics covered on this WordPress site, including blog posts, tutorials, documentation, news, and any other content published on the website.',
-        'inputSchema' => [
-          'type' => 'object',
-          'properties' => [
-            'query' => [ 'type' => 'string', 'description' => 'Search query to find relevant posts and pages. Can be keywords, phrases, or topics.' ],
-          ],
-          'required' => [ 'query' ],
-        ],
-      ],
-
-      'fetch' => [
-        'name' => 'fetch',
-        'description' => 'Retrieves the complete content of a specific post or page from the "' . get_bloginfo( 'name' ) . '" WordPress website' . ( get_bloginfo( 'description' ) ? ' - ' . get_bloginfo( 'description' ) : '' ) . ' using its ID. This returns the full article text, metadata (author, publication date, categories, tags), and URL for proper citation. Use this after searching to get the complete content of relevant articles for deep analysis and comprehensive answers. The content is essential for providing accurate, detailed responses based on the actual information published on the website.',
-        'inputSchema' => [
-          'type' => 'object',
-          'properties' => [
-            'id' => [ 'type' => 'string', 'description' => 'The WordPress post ID obtained from search results.' ],
-          ],
-          'required' => [ 'id' ],
-        ],
-      ],
     ];
   }
   #endregion
@@ -575,24 +615,49 @@ class Meow_MWAI_Labs_MCP_Core {
   #region Tool Registration
   public function register_rest_tools( array $prev ): array {
     $tools = $this->tools();
-    // Add category to each tool
+
+    // All 36 core tools enabled and tested with ChatGPT.
+    // Automatic validation in mcp.php fixes problematic type definitions.
+
+    // Add category and annotations to each tool
     foreach ( $tools as &$tool ) {
       if ( !isset( $tool['category'] ) ) {
-        // Set Core: OpenAI category for search and fetch tools
-        if ( in_array( $tool['name'], ['search', 'fetch'] ) ) {
-          $tool['category'] = 'Core: OpenAI';
-        }
-        else {
-          $tool['category'] = 'Core';
-        }
+        $tool['category'] = 'AI Engine (Core)';
+      }
+
+      // Add MCP tool annotations based on tool name/behavior
+      if ( !isset( $tool['annotations'] ) ) {
+        $name = $tool['name'];
+
+        // Read-only tools (safe, no modifications)
+        $is_readonly = (
+          strpos( $name, 'wp_get_' ) === 0 ||
+          strpos( $name, 'wp_list_' ) === 0 ||
+          strpos( $name, 'wp_count_' ) === 0 ||
+          $name === 'mwai_vision'
+        );
+
+        // Destructive tools (can delete/destroy data)
+        $is_destructive = (
+          strpos( $name, 'wp_delete_' ) === 0 ||
+          $name === 'wp_update_user' // Can change passwords/roles
+        );
+
+        $tool['annotations'] = [
+          'readOnlyHint' => $is_readonly,
+          'destructiveHint' => !$is_readonly && $is_destructive,
+          'openWorldHint' => false, // All operate on closed WordPress system
+        ];
       }
     }
-    return array_merge( $prev, array_values( $tools ) );
+
+    $merged = array_merge( $prev, array_values( $tools ) );
+    return $merged;
   }
   #endregion
 
   #region Callback
-  public function handle_call( $prev, string $tool, array $args, int $id ) {
+  public function handle_call( $prev, string $tool, array $args, ?int $id ) {
     // Security check is already done in the MCP auth layer
     // If we reach here, the user is authorized to use MCP
     if ( !empty( $prev ) || !isset( $this->tools()[ $tool ] ) ) {
@@ -603,7 +668,7 @@ class Meow_MWAI_Labs_MCP_Core {
   #endregion
 
   #region Dispatcher
-  private function dispatch( string $tool, array $a, int $id ): array {
+  private function dispatch( string $tool, array $a, ?int $id ): array {
     $r = [ 'jsonrpc' => '2.0', 'id' => $id ];
 
     switch ( $tool ) {
@@ -890,6 +955,110 @@ class Meow_MWAI_Labs_MCP_Core {
         $this->add_result_text( $r, wp_json_encode( $out, JSON_PRETTY_PRINT ) );
         break;
 
+        /* ===== Posts: snapshot ===== */
+      case 'wp_get_post_snapshot':
+        if ( empty( $a['ID'] ) ) {
+          $r['error'] = [ 'code' => -32602, 'message' => 'ID required' ];
+          break;
+        }
+
+        $post_id = intval( $a['ID'] );
+        $p = get_post( $post_id );
+
+        if ( !$p ) {
+          $r['error'] = [ 'code' => -32602, 'message' => 'Post not found' ];
+          break;
+        }
+
+        $include = $a['include'] ?? [ 'meta', 'terms', 'thumbnail', 'author' ];
+        $exclude = $a['exclude'] ?? [];
+
+        // Handle JSON strings (some MCP clients send arrays as JSON strings)
+        if ( is_string( $include ) ) {
+          $include = json_decode( $include, true ) ?? [];
+        }
+        if ( is_string( $exclude ) ) {
+          $exclude = json_decode( $exclude, true ) ?? [];
+        }
+
+        $snapshot = [
+          'post' => [
+            'ID' => $p->ID,
+            'post_title' => $p->post_title,
+            'post_type' => $p->post_type,
+            'post_status' => $p->post_status,
+            'post_excerpt' => $this->post_excerpt( $p ),
+            'post_name' => $p->post_name,
+            'permalink' => get_permalink( $p ),
+            'post_date' => $p->post_date,
+            'post_modified' => $p->post_modified,
+          ],
+        ];
+
+        // Include content unless excluded (useful for posts with huge content)
+        if ( !in_array( 'content', $exclude ) ) {
+          $snapshot['post']['post_content'] = $this->clean_html( $p->post_content );
+        }
+
+        // Include all post meta
+        if ( in_array( 'meta', $include ) ) {
+          $snapshot['meta'] = [];
+          $all_meta = get_post_meta( $post_id );
+          foreach ( $all_meta as $key => $value ) {
+            if ( is_array( $value ) && count( $value ) === 1 ) {
+              $snapshot['meta'][ $key ] = maybe_unserialize( $value[0] );
+            }
+            else {
+              $snapshot['meta'][ $key ] = array_map( 'maybe_unserialize', $value );
+            }
+          }
+        }
+
+        // Include all taxonomies and their terms
+        if ( in_array( 'terms', $include ) ) {
+          $snapshot['terms'] = [];
+          $taxonomies = get_object_taxonomies( $p->post_type );
+          foreach ( $taxonomies as $taxonomy ) {
+            $terms = wp_get_post_terms( $post_id, $taxonomy, [ 'fields' => 'all' ] );
+            if ( !is_wp_error( $terms ) && !empty( $terms ) ) {
+              $snapshot['terms'][ $taxonomy ] = array_map( function ( $t ) {
+                return [
+                  'term_id' => $t->term_id,
+                  'name' => $t->name,
+                  'slug' => $t->slug,
+                ];
+              }, $terms );
+            }
+          }
+        }
+
+        // Include featured image
+        if ( in_array( 'thumbnail', $include ) ) {
+          $thumb_id = get_post_thumbnail_id( $post_id );
+          if ( $thumb_id ) {
+            $snapshot['thumbnail'] = [
+              'ID' => $thumb_id,
+              'url' => wp_get_attachment_url( $thumb_id ),
+              'alt' => get_post_meta( $thumb_id, '_wp_attachment_image_alt', true ),
+            ];
+          }
+        }
+
+        // Include author
+        if ( in_array( 'author', $include ) ) {
+          $author = get_userdata( $p->post_author );
+          if ( $author ) {
+            $snapshot['author'] = [
+              'ID' => $author->ID,
+              'display_name' => $author->display_name,
+              'user_login' => $author->user_login,
+            ];
+          }
+        }
+
+        $this->add_result_text( $r, wp_json_encode( $snapshot, JSON_PRETTY_PRINT ) );
+        break;
+
         /* ===== Posts: create ===== */
       case 'wp_create_post':
         if ( empty( $a['post_title'] ) ) {
@@ -910,16 +1079,23 @@ class Meow_MWAI_Labs_MCP_Core {
         if ( $a['post_name'] ?? '' ) {
           $ins['post_name'] = sanitize_title( $a['post_name'] );
         }
-        if ( !empty( $a['meta_input'] ) && is_array( $a['meta_input'] ) ) {
-          $ins['meta_input'] = $a['meta_input'];
+
+        // Handle JSON strings for meta_input (some MCP clients send objects as JSON strings)
+        $meta_input = $a['meta_input'] ?? [];
+        if ( is_string( $meta_input ) ) {
+          $meta_input = json_decode( $meta_input, true ) ?? [];
         }
+        if ( !empty( $meta_input ) && is_array( $meta_input ) ) {
+          $ins['meta_input'] = $meta_input;
+        }
+
         $new = wp_insert_post( $ins, true );
         if ( is_wp_error( $new ) ) {
           $r['error'] = [ 'code' => $new->get_error_code(), 'message' => $new->get_error_message() ];
         }
         else {
-          if ( empty( $ins['meta_input'] ) && !empty( $a['meta_input'] ) && is_array( $a['meta_input'] ) ) {
-            foreach ( $a['meta_input'] as $k => $v ) {
+          if ( empty( $ins['meta_input'] ) && !empty( $meta_input ) && is_array( $meta_input ) ) {
+            foreach ( $meta_input as $k => $v ) {
               update_post_meta( $new, sanitize_key( $k ), maybe_serialize( $v ) );
             }
           }
@@ -933,23 +1109,105 @@ class Meow_MWAI_Labs_MCP_Core {
           $r['error'] = [ 'code' => -32602, 'message' => 'ID required' ];
           break;
         }
-        $c = [ 'ID' => intval( $a['ID'] ) ];
-        if ( !empty( $a['fields'] ) && is_array( $a['fields'] ) ) {
-          foreach ( $a['fields'] as $k => $v ) {
-            $c[ $k ] = in_array( $k, [ 'post_content', 'post_excerpt' ], true ) ? $this->clean_html( $v ) : sanitize_text_field( $v );
+        $post_id = intval( $a['ID'] );
+        $c = [ 'ID' => $post_id ];
+
+        // Handle JSON strings (some MCP clients send objects as JSON strings)
+        $fields_raw = $a['fields'] ?? null;
+        $fields = $fields_raw;
+        if ( is_string( $fields ) ) {
+          $fields = json_decode( $fields, true );
+          // Detect truncated/malformed JSON
+          if ( $fields === null && strlen( $fields_raw ) > 0 ) {
+            $r['error'] = [ 'code' => -32602, 'message' => 'Fields parameter is invalid JSON (possibly truncated). Content may be too large for the transport. Raw length: ' . strlen( $fields_raw ) . ' bytes' ];
+            break;
           }
         }
-        $u = ( count( $c ) > 1 ) ? wp_update_post( $c, true ) : $c['ID'];
-        if ( is_wp_error( $u ) ) {
-          $r['error'] = [ 'code' => $u->get_error_code(), 'message' => $u->get_error_message() ];
+        $fields = $fields ?? [];
+
+        // Track what we're trying to update for verification
+        $content_to_verify = null;
+        if ( !empty( $fields ) && is_array( $fields ) ) {
+          foreach ( $fields as $k => $v ) {
+            $c[ $k ] = in_array( $k, [ 'post_content', 'post_excerpt' ], true ) ? $this->clean_html( $v ) : sanitize_text_field( $v );
+          }
+          if ( isset( $c['post_content'] ) ) {
+            $content_to_verify = $c['post_content'];
+          }
+        }
+
+        // Handle schedule_for convenience parameter
+        if ( !empty( $a['schedule_for'] ) ) {
+          $schedule_date = sanitize_text_field( $a['schedule_for'] );
+          $c['post_status'] = 'future';
+          $c['post_date'] = $schedule_date;
+          $c['post_date_gmt'] = get_gmt_from_date( $schedule_date );
+          $c['edit_date'] = true; // Required for WordPress to respect date changes
+        }
+
+        // Handle JSON strings for meta_input
+        $meta_raw = $a['meta_input'] ?? null;
+        $meta_input = $meta_raw;
+        if ( is_string( $meta_input ) ) {
+          $meta_input = json_decode( $meta_input, true );
+          if ( $meta_input === null && strlen( $meta_raw ) > 0 ) {
+            $r['error'] = [ 'code' => -32602, 'message' => 'meta_input parameter is invalid JSON (possibly truncated).' ];
+            break;
+          }
+        }
+        $meta_input = $meta_input ?? [];
+        $has_meta = !empty( $meta_input ) && is_array( $meta_input );
+        $has_fields = count( $c ) > 1;
+
+        // Error if nothing to update
+        if ( !$has_fields && !$has_meta ) {
+          $hint = '';
+          if ( isset( $a['fields'] ) || isset( $a['meta_input'] ) ) {
+            $hint = ' (parameters were provided but parsed as empty - check for malformed JSON)';
+          }
+          $r['error'] = [ 'code' => -32602, 'message' => 'No fields or meta_input provided to update' . $hint ];
           break;
         }
-        if ( !empty( $a['meta_input'] ) && is_array( $a['meta_input'] ) ) {
-          foreach ( $a['meta_input'] as $k => $v ) {
+
+        // Update post fields if any
+        $u = $post_id;
+        if ( $has_fields ) {
+          $u = wp_update_post( $c, true );
+          if ( is_wp_error( $u ) ) {
+            $r['error'] = [ 'code' => $u->get_error_code(), 'message' => $u->get_error_message() ];
+            break;
+          }
+        }
+
+        // Update meta if any
+        if ( $has_meta ) {
+          foreach ( $meta_input as $k => $v ) {
             update_post_meta( $u, sanitize_key( $k ), maybe_serialize( $v ) );
           }
         }
-        $this->add_result_text( $r, 'Post #' . $u . ' updated' );
+
+        // Verify the update actually took effect
+        $updated_post = get_post( $u );
+        $result = [
+          'post_id' => $u,
+          'post_modified' => $updated_post->post_modified,
+        ];
+
+        // Verify content was saved correctly if we tried to update it
+        if ( $content_to_verify !== null ) {
+          $saved_content = $updated_post->post_content;
+          $result['content_length'] = strlen( $saved_content );
+          if ( $saved_content !== $content_to_verify ) {
+            $result['warning'] = 'Content differs from input (sanitization applied or save failed)';
+            $result['expected_length'] = strlen( $content_to_verify );
+          }
+        }
+
+        if ( !empty( $a['schedule_for'] ) ) {
+          $result['scheduled_for'] = $a['schedule_for'];
+        }
+
+        $this->add_result_text( $r, wp_json_encode( $result, JSON_PRETTY_PRINT ) );
         break;
 
         /* ===== Posts: delete ===== */
@@ -965,6 +1223,67 @@ class Meow_MWAI_Labs_MCP_Core {
         else {
           $r['error'] = [ 'code' => -32603, 'message' => 'Deletion failed' ];
         }
+        break;
+
+        /* ===== Posts: alter (search/replace) ===== */
+      case 'wp_alter_post':
+        if ( empty( $a['ID'] ) || empty( $a['field'] ) || !isset( $a['search'] ) || !isset( $a['replace'] ) ) {
+          $r['error'] = [ 'code' => -32602, 'message' => 'ID, field, search, and replace required' ];
+          break;
+        }
+        $post_id = intval( $a['ID'] );
+        $field = sanitize_key( $a['field'] );
+        $search = $a['search'];
+        $replace = $a['replace'];
+        $is_regex = !empty( $a['regex'] );
+
+        // Validate field
+        $allowed_fields = [ 'post_content', 'post_excerpt', 'post_title' ];
+        if ( !in_array( $field, $allowed_fields, true ) ) {
+          $r['error'] = [ 'code' => -32602, 'message' => 'Field must be: post_content, post_excerpt, or post_title' ];
+          break;
+        }
+
+        $post = get_post( $post_id );
+        if ( !$post ) {
+          $r['error'] = [ 'code' => -32602, 'message' => 'Post not found' ];
+          break;
+        }
+
+        $content = $post->$field;
+        $count = 0;
+
+        if ( $is_regex ) {
+          // Validate regex pattern
+          set_error_handler( fn () => false );
+          $test = preg_match( $search, '' );
+          restore_error_handler();
+          if ( $test === false ) {
+            $r['error'] = [ 'code' => -32602, 'message' => 'Invalid regex pattern' ];
+            break;
+          }
+          $new_content = preg_replace( $search, $replace, $content, -1, $count );
+          if ( $new_content === null ) {
+            $r['error'] = [ 'code' => -32603, 'message' => 'Regex error' ];
+            break;
+          }
+        }
+        else {
+          $new_content = str_replace( $search, $replace, $content, $count );
+        }
+
+        if ( $count === 0 ) {
+          $this->add_result_text( $r, 'No occurrences found; post unchanged.' );
+          break;
+        }
+
+        $update = wp_update_post( [ 'ID' => $post_id, $field => $new_content ], true );
+        if ( is_wp_error( $update ) ) {
+          $r['error'] = [ 'code' => $update->get_error_code(), 'message' => $update->get_error_message() ];
+          break;
+        }
+
+        $this->add_result_text( $r, $count . ' replacement' . ( $count === 1 ? '' : 's' ) . ' applied to ' . $field . ' of post #' . $post_id );
         break;
 
         /* ===== Post-meta ===== */
@@ -984,8 +1303,15 @@ class Meow_MWAI_Labs_MCP_Core {
           break;
         }
         $pid = intval( $a['ID'] );
-        if ( !empty( $a['meta'] ) && is_array( $a['meta'] ) ) {
-          foreach ( $a['meta'] as $k => $v ) {
+
+        // Handle JSON strings for meta (some MCP clients send objects as JSON strings)
+        $meta = $a['meta'] ?? null;
+        if ( is_string( $meta ) ) {
+          $meta = json_decode( $meta, true );
+        }
+
+        if ( !empty( $meta ) && is_array( $meta ) ) {
+          foreach ( $meta as $k => $v ) {
             update_post_meta( $pid, sanitize_key( $k ), maybe_serialize( $v ) );
           }
         }
@@ -1147,9 +1473,14 @@ class Meow_MWAI_Labs_MCP_Core {
           $r['error'] = [ 'code' => -32602, 'message' => 'ID & terms required' ];
           break;
         }
+        $terms = $a['terms'];
+        // Handle JSON strings (some MCP clients send arrays as JSON strings)
+        if ( is_string( $terms ) ) {
+          $terms = json_decode( $terms, true ) ?? [];
+        }
         $tax = sanitize_key( $a['taxonomy'] ?? 'category' );
         $append = !isset( $a['append'] ) || $a['append'];
-        $set = wp_set_post_terms( intval( $a['ID'] ), $a['terms'], $tax, $append );
+        $set = wp_set_post_terms( intval( $a['ID'] ), $terms, $tax, $append );
         if ( is_wp_error( $set ) ) {
           $r['error'] = [ 'code' => $set->get_error_code(), 'message' => $set->get_error_message() ];
         }
@@ -1185,19 +1516,34 @@ class Meow_MWAI_Labs_MCP_Core {
 
         /* ===== Media: upload ===== */
       case 'wp_upload_media':
-        if ( empty( $a['url'] ) ) {
-          $r['error'] = [ 'code' => -32602, 'message' => 'url required' ];
+        $has_url = !empty( $a['url'] );
+        $has_base64 = !empty( $a['base64'] ) && !empty( $a['filename'] );
+        if ( !$has_url && !$has_base64 ) {
+          $r['error'] = [ 'code' => -32602, 'message' => 'Provide either url, or base64 + filename.' ];
           break;
         }
         try {
           require_once ABSPATH . 'wp-admin/includes/file.php';
           require_once ABSPATH . 'wp-admin/includes/media.php';
           require_once ABSPATH . 'wp-admin/includes/image.php';
-          $tmp = download_url( $a['url'] );
-          if ( is_wp_error( $tmp ) ) {
-            throw new Exception( $tmp->get_error_message(), $tmp->get_error_code() );
+
+          if ( $has_url ) {
+            $tmp = download_url( $a['url'] );
+            if ( is_wp_error( $tmp ) ) {
+              throw new Exception( $tmp->get_error_message(), $tmp->get_error_code() );
+            }
+            $file = [ 'name' => basename( parse_url( $a['url'], PHP_URL_PATH ) ), 'tmp_name' => $tmp ];
           }
-          $file = [ 'name' => basename( parse_url( $a['url'], PHP_URL_PATH ) ), 'tmp_name' => $tmp ];
+          else {
+            $decoded = base64_decode( $a['base64'], true );
+            if ( $decoded === false ) {
+              throw new Exception( 'Invalid base64 data.' );
+            }
+            $tmp = wp_tempnam( $a['filename'] );
+            file_put_contents( $tmp, $decoded );
+            $file = [ 'name' => sanitize_file_name( $a['filename'] ), 'tmp_name' => $tmp ];
+          }
+
           $id = media_handle_sideload( $file, 0, $a['description'] ?? '' );
           @unlink( $tmp );
           if ( is_wp_error( $id ) ) {
@@ -1210,6 +1556,34 @@ class Meow_MWAI_Labs_MCP_Core {
             update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( $a['alt'] ) );
           }
           $this->add_result_text( $r, wp_get_attachment_url( $id ) );
+        }
+        catch ( \Throwable $e ) {
+          $r['error'] = [ 'code' => $e->getCode() ?: -32603, 'message' => $e->getMessage() ];
+        }
+        break;
+
+        /* ===== Media: upload alternative (two-step) ===== */
+      case 'wp_upload_request':
+        if ( empty( $a['filename'] ) ) {
+          $r['error'] = [ 'code' => -32602, 'message' => 'filename required' ];
+          break;
+        }
+        try {
+          $token = wp_generate_password( 32, false );
+          $transient_key = 'mwai_mcp_upload_' . $token;
+          $data = [
+            'filename' => sanitize_file_name( $a['filename'] ),
+            'title' => $a['title'] ?? '',
+            'description' => $a['description'] ?? '',
+            'alt' => $a['alt'] ?? '',
+          ];
+          set_transient( $transient_key, $data, 5 * MINUTE_IN_SECONDS );
+          $upload_url = rest_url( 'mcp/v1/upload/' . $token );
+          $this->add_result_text( $r, wp_json_encode( [
+            'upload_url' => $upload_url,
+            'expires_in' => '5 minutes',
+            'usage' => 'curl -X POST -F "file=@/path/to/' . $a['filename'] . '" "' . $upload_url . '"',
+          ], JSON_PRETTY_PRINT ) );
         }
         catch ( \Throwable $e ) {
           $r['error'] = [ 'code' => $e->getCode() ?: -32603, 'message' => $e->getMessage() ];
@@ -1325,108 +1699,6 @@ class Meow_MWAI_Labs_MCP_Core {
         ];
         $this->add_result_text( $r, wp_json_encode( $media, JSON_PRETTY_PRINT ) );
         break;
-
-        /* ===== Ping ===== */
-        // Note: mcp_ping is now handled by the base MCP class
-
-        /* ===== OpenAI Deep Research Tools ===== */
-      case 'search':
-        if ( empty( $a['query'] ) ) {
-          $r['error'] = [ 'code' => -32602, 'message' => 'query required' ];
-          break;
-        }
-
-        $query = sanitize_text_field( $a['query'] );
-
-        // Search in posts and pages
-        $args = [
-          's' => $query,
-          'post_type' => [ 'post', 'page' ],
-          'post_status' => 'publish',
-          'posts_per_page' => 20,
-          'orderby' => 'relevance',
-          'order' => 'DESC',
-        ];
-
-        $search_query = new WP_Query( $args );
-        $results = [];
-
-        if ( $search_query->have_posts() ) {
-          while ( $search_query->have_posts() ) {
-            $search_query->the_post();
-            $post = get_post();
-
-            // Create result matching OpenAI's expected format
-            $results[] = [
-              'id' => (string) $post->ID,
-              'title' => get_the_title(),
-              'text' => wp_trim_words( wp_strip_all_tags( $post->post_content ), 100 ),
-              'url' => get_permalink(),
-            ];
-          }
-          wp_reset_postdata();
-        }
-
-        // Return results in OpenAI's expected format
-        // We need to return the raw result structure for OpenAI
-        return [
-          'jsonrpc' => '2.0',
-          'id' => $id,
-          'result' => [ 'results' => $results ],
-        ];
-
-      case 'fetch':
-        if ( empty( $a['id'] ) ) {
-          $r['error'] = [ 'code' => -32602, 'message' => 'id required' ];
-          break;
-        }
-
-        $post_id = intval( $a['id'] );
-        $post = get_post( $post_id );
-
-        if ( !$post || $post->post_status !== 'publish' ) {
-          $r['error'] = [ 'code' => -32603, 'message' => 'Resource not found or not published' ];
-          break;
-        }
-
-        // Get full content with proper formatting
-        $content = apply_filters( 'the_content', $post->post_content );
-        $content = wp_strip_all_tags( $content );
-
-        // Get metadata
-        $metadata = [
-          'author' => get_the_author_meta( 'display_name', $post->post_author ),
-          'date' => get_the_date( 'Y-m-d', $post ),
-          'modified' => get_the_modified_date( 'Y-m-d', $post ),
-          'type' => $post->post_type,
-        ];
-
-        // Add categories if it's a post
-        if ( $post->post_type === 'post' ) {
-          $categories = wp_get_post_categories( $post_id, [ 'fields' => 'names' ] );
-          if ( !empty( $categories ) ) {
-            $metadata['categories'] = implode( ', ', $categories );
-          }
-
-          $tags = wp_get_post_tags( $post_id, [ 'fields' => 'names' ] );
-          if ( !empty( $tags ) ) {
-            $metadata['tags'] = implode( ', ', $tags );
-          }
-        }
-
-        // Return in OpenAI's expected format
-        // We need to return the raw result structure for OpenAI
-        return [
-          'jsonrpc' => '2.0',
-          'id' => $id,
-          'result' => [
-            'id' => (string) $post_id,
-            'title' => get_the_title( $post ),
-            'text' => $content,
-            'url' => get_permalink( $post ),
-            'metadata' => $metadata,
-          ],
-        ];
 
       default: $r['error'] = [ 'code' => -32601, 'message' => 'Unknown tool' ];
     }

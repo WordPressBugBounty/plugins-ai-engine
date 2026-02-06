@@ -15,52 +15,11 @@ class Meow_MWAI_Modules_Files {
     $this->table_files = $this->wpdb->prefix . 'mwai_files';
     $this->table_filemeta = $this->wpdb->prefix . 'mwai_filemeta';
     add_action( 'rest_api_init', [ $this, 'rest_api_init' ] );
-    
+
     // TODO: Remove after January 2026 - Legacy cron support
     // Old cron scheduling removed - now handled by Tasks module
-    // if ( !wp_next_scheduled( 'mwai_files_cleanup' ) ) {
-    //   wp_schedule_event( time(), 'hourly', 'mwai_files_cleanup' );
-    // }
-    // add_action( 'mwai_files_cleanup', [ $this, 'cleanup_expired_files' ] );
-    
-    // Register task handler
+    // Register task handler for cleanup
     add_filter( 'mwai_task_cleanup_files', [ $this, 'handle_cleanup_task' ], 10, 2 );
-  }
-
-  public function cleanup_expired_files() {
-    // Track that this cron started
-    $this->core->track_cron_start( 'mwai_files_cleanup' );
-    
-    try {
-      $current_time = current_time( 'mysql' );
-      $expired_files = [];
-      if ( $this->check_db() ) {
-        $expired_files = $this->wpdb->get_results(
-          "SELECT * FROM $this->table_files WHERE expires IS NOT NULL AND expires < '{$current_time}'"
-        );
-      }
-      $expired_posts = get_posts( [
-        'post_type' => 'attachment',
-        'meta_key' => '_mwai_file_expires',
-        'meta_value' => $current_time,
-        'meta_compare' => '<'
-      ] );
-      $fileRefs = [];
-      foreach ( $expired_files as $file ) {
-        $fileRefs[] = $file->refId;
-      }
-      foreach ( $expired_posts as $post ) {
-        $fileRefs[] = get_post_meta( $post->ID, '_mwai_file_id', true );
-      }
-      $this->delete_expired_files( $fileRefs );
-      
-      // Track successful completion
-      $this->core->track_cron_end( 'mwai_files_cleanup', 'success' );
-    } catch ( Exception $e ) {
-      // Track failure
-      $this->core->track_cron_end( 'mwai_files_cleanup', 'error' );
-      throw $e; // Re-throw to maintain original behavior
-    }
   }
 
   public function delete_expired_files( $fileRefs ) {
@@ -71,6 +30,12 @@ class Meow_MWAI_Modules_Files {
     if ( !is_array( $fileRefs ) ) {
       $fileRefs = [ $fileRefs ];
     }
+
+    // Delete provider files before local cleanup
+    foreach ( $fileRefs as $refId ) {
+      $this->delete_provider_file( $refId );
+    }
+
     foreach ( $fileRefs as $refId ) {
       $file = null;
       if ( $this->check_db() ) {
@@ -96,6 +61,50 @@ class Meow_MWAI_Modules_Files {
           }
         }
       }
+    }
+  }
+
+  /**
+   * Delete file from provider (OpenAI, Anthropic, etc.) if applicable.
+   * This is called before local cleanup to ensure provider files are removed.
+   *
+   * @param string $refId The local file reference ID
+   */
+  private function delete_provider_file( $refId ) {
+    $metadata = $this->get_metadata( $refId );
+    $providerFileId = $metadata['file_id'] ?? null;
+    $provider = $metadata['provider'] ?? null;
+
+    if ( !$providerFileId || !$provider ) {
+      return; // No provider file to delete
+    }
+
+    $fileInfo = $this->get_info( $refId );
+    $envId = $fileInfo['envId'] ?? null;
+
+    if ( !$envId ) {
+      Meow_MWAI_Logging::warn( "Cannot delete provider file {$providerFileId}: no envId stored" );
+      return;
+    }
+
+    try {
+      if ( $provider === 'openai' ) {
+        $engine = Meow_MWAI_Engines_Factory::get_openai( $this->core, $envId );
+        $engine->delete_file( $providerFileId );
+        Meow_MWAI_Logging::log( "Deleted OpenAI file: {$providerFileId}" );
+      }
+      elseif ( $provider === 'anthropic' ) {
+        $engine = Meow_MWAI_Engines_Factory::get( $this->core, $envId );
+        if ( method_exists( $engine, 'delete_file' ) ) {
+          $engine->delete_file( $providerFileId );
+          Meow_MWAI_Logging::log( "Deleted Anthropic file: {$providerFileId}" );
+        }
+      }
+      // Google: Add when they have a Files API that needs cleanup
+    }
+    catch ( Exception $e ) {
+      // Log but don't fail - local cleanup should still proceed
+      Meow_MWAI_Logging::error( "Failed to delete {$provider} file {$providerFileId}: " . $e->getMessage() );
     }
   }
 
@@ -309,6 +318,14 @@ class Meow_MWAI_Modules_Files {
         throw new Exception( 'File ID (or URL) is required.' );
       }
     }
+
+    // Check if file with this refId already exists
+    $existingFileId = $this->get_id_from_refId( $fileInfo['refId'] );
+    if ( $existingFileId ) {
+      // File already exists, return its ID
+      return $existingFileId;
+    }
+
     if ( empty( $fileInfo['type'] ) ) {
       $fileInfo['type'] = Meow_MWAI_Core::is_image( $fileInfo['url'] ) ? 'image' : 'file';
     }
@@ -325,8 +342,19 @@ class Meow_MWAI_Modules_Files {
       'path' => empty( $fileInfo['path'] ) ? null : $fileInfo['path'],
       'url' => empty( $fileInfo['url'] ) ? null : $fileInfo['url']
     ] );
-    // check for error
+
+    // Check for error
     if ( !$success ) {
+      // Check if it's a duplicate key error (race condition)
+      if ( strpos( $this->wpdb->last_error, 'Duplicate entry' ) !== false &&
+           strpos( $this->wpdb->last_error, 'unique_file_id' ) !== false ) {
+        // Race condition: file was inserted by another request between our check and insert
+        // Try to get the existing file ID one more time
+        $existingFileId = $this->get_id_from_refId( $fileInfo['refId'] );
+        if ( $existingFileId ) {
+          return $existingFileId;
+        }
+      }
       throw new Exception( 'Error while adding file in the DB (' . $this->wpdb->last_error . ')' );
     }
     return $this->wpdb->insert_id;
@@ -334,7 +362,8 @@ class Meow_MWAI_Modules_Files {
 
   // Generate a refId from a URL or random, and make sure it's unique
   public function generate_refId( $attempts = 0 ) {
-    $refId = md5( date( 'Y-m-d H:i:s' ) . '-' . $attempts );
+    // Use microtime for higher precision to avoid collisions when uploading multiple files simultaneously
+    $refId = md5( microtime( true ) . '-' . wp_rand() . '-' . $attempts );
     $file = $this->wpdb->get_row( $this->wpdb->prepare(
       "SELECT *
                                                                                                                                                                                                                                               FROM $this->table_files
@@ -374,7 +403,7 @@ class Meow_MWAI_Modules_Files {
     else {
       $extension = pathinfo( $filename, PATHINFO_EXTENSION );
     }
-    
+
     // Validate file type using WordPress built-in function
     $validate = wp_check_filetype( $filename );
     if ( $validate['type'] == false ) {
@@ -586,56 +615,6 @@ class Meow_MWAI_Modules_Files {
     return [ $sql, $params ];
   }
 
-  // public function search( $userId = null, $purpose = null, $metadata = [], $limit = 10, $offset = 0 ) {
-  //   $sql = "SELECT * FROM $this->table_files WHERE 1=1";
-  //   $actualUserId = $this->core->get_user_id();
-  //   $canAdmin = $this->core->can_access_settings();
-  //   if ( $userId !== $actualUserId ) {
-  //     if ( !$canAdmin ) {
-  //       throw new Exception( 'You are not allowed to access files from another user.' );
-  //     }
-  //   }
-  //   if ( $userId ) {
-  //     $sql .= $this->wpdb->prepare( " AND userId = %d", $userId );
-  //   }
-  //   if ( $purpose ) {
-  //     if ( is_array( $purpose ) ) {
-  //       $sql .= " AND (";
-  //       foreach ( $purpose as $p ) {
-  //         $sql .= $this->wpdb->prepare( " purpose = %s OR", $p );
-  //       }
-  //       $sql = rtrim( $sql, 'OR' );
-  //       $sql .= ")";
-  //     }
-  //     else {
-  //       $sql .= $this->wpdb->prepare( " AND purpose = %s", $purpose );
-  //     }
-  //   }
-  //   if ( $metadata ) {
-  //     foreach ( $metadata as $metaKey => $metaValue ) {
-  //       $sql .= $this->wpdb->prepare( " AND EXISTS ( SELECT * FROM $this->table_filemeta
-  //         WHERE file_id = $this->table_files.id AND meta_key = %s AND meta_value = %s )",
-  //         $metaKey, $metaValue
-  //       );
-  //     }
-  //   }
-  //   $sql .= " ORDER BY updated DESC";
-  //   if ( $limit ) {
-  //     $sql .= $this->wpdb->prepare( " LIMIT %d", $limit );
-  //   }
-  //   if ( $offset ) {
-  //     $sql .= $this->wpdb->prepare( " OFFSET %d", $offset );
-  //   }
-  //   $files = $this->wpdb->get_results( $sql, ARRAY_A );
-
-  //   // Add metadata
-  //   foreach ( $files as &$file ) {
-  //     $file['metadata'] = $this->get_metadata( $file['refId'] );
-  //   }
-
-  //   return $files;
-  // }
-
   public function get_id_from_refId( $refId ) {
     $file = null;
     if ( $this->check_db() ) {
@@ -668,7 +647,7 @@ class Meow_MWAI_Modules_Files {
     $metadata = empty( $params['metadata'] ) ? null : json_decode( $params['metadata'], true );
     $limit = empty( $params['limit'] ) ? 10 : intval( $params['limit'] );
     $offset = empty( $params['page'] ) ? 0 : ( intval( $params['page'] ) - 1 ) * $limit;
-    
+
     // Security fix: For unauthenticated users or users without explicit userId,
     // restrict to their own files based on session
     $currentUserId = $this->core->get_user_id();
@@ -679,26 +658,28 @@ class Meow_MWAI_Modules_Files {
         return new WP_REST_Response( [ 'success' => false, 'message' => 'Unauthorized access' ], 403 );
       }
       $userId = $sessionUserId;
-    } else if ( empty( $userId ) ) {
+    }
+    else if ( empty( $userId ) ) {
       // For authenticated users without specified userId, use their own ID
       $userId = $currentUserId;
-    } else if ( $userId !== $currentUserId && !$this->core->can_access_settings() ) {
+    }
+    else if ( $userId !== $currentUserId && !$this->core->can_access_settings() ) {
       // Non-admin users can only access their own files
       return new WP_REST_Response( [ 'success' => false, 'message' => 'Unauthorized access to other user files' ], 403 );
     }
-    
+
     $files = $this->list( $userId, $purpose, $metadata, $envId, $limit, $offset );
     return new WP_REST_Response( [ 'success' => true, 'data' => $files ], 200 );
   }
 
   public function rest_delete( $request ) {
     $params = $request->get_json_params();
-    $fileIds = empty( $params['files'] ) ? [] : $params['files'];
-    
+    $fileRefs = empty( $params['files'] ) ? [] : $params['files'];
+
     // Security fix: Verify user can delete these files
     $currentUserId = $this->core->get_user_id();
     $sessionUserId = null;
-    
+
     if ( !$currentUserId || $currentUserId === 0 ) {
       // For unauthenticated users, get session-based user ID
       $sessionUserId = $this->core->get_session_user_id();
@@ -706,20 +687,33 @@ class Meow_MWAI_Modules_Files {
         return new WP_REST_Response( [ 'success' => false, 'message' => 'Unauthorized access' ], 403 );
       }
     }
-    
+
+    // Convert refIds to numeric IDs
+    $fileIds = [];
+    foreach ( $fileRefs as $ref ) {
+      $id = $this->get_id_from_refId( $ref );
+      if ( $id ) {
+        $fileIds[] = $id;
+      }
+    }
+
+    if ( empty( $fileIds ) ) {
+      return new WP_REST_Response( [ 'success' => false, 'message' => 'No valid files to delete' ], 400 );
+    }
+
     // Verify ownership of files before deletion
     $authorizedFileIds = $this->filter_authorized_files( $fileIds, $currentUserId ?: $sessionUserId );
-    
+
     if ( empty( $authorizedFileIds ) ) {
       return new WP_REST_Response( [ 'success' => false, 'message' => 'No authorized files to delete' ], 403 );
     }
-    
+
     $this->delete_files( $authorizedFileIds );
     return new WP_REST_Response( [ 'success' => true, 'deleted' => count( $authorizedFileIds ) ], 200 );
   }
 
   public function delete_files( $fileIds ) {
-    $query = "SELECT refId, path FROM $this->table_files WHERE id IN (";
+    $query = "SELECT id, refId, path FROM $this->table_files WHERE id IN (";
     $params = [];
     foreach ( $fileIds as $fileId ) {
       $query .= '%s,';
@@ -731,7 +725,11 @@ class Meow_MWAI_Modules_Files {
     $refIds = apply_filters( 'mwai_files_delete', array_column( $files, 'refId' ) );
     foreach ( $files as $file ) {
       if ( in_array( $file['refId'], $refIds ) ) {
+        // Delete from provider first
+        $this->delete_provider_file( $file['refId'] );
+        // Delete local file and database records
         $this->wpdb->delete( $this->table_files, [ 'refId' => $file['refId'] ] );
+        $this->wpdb->delete( $this->table_filemeta, [ 'file_id' => $file['id'] ] );
         if ( file_exists( $file['path'] ) ) {
           unlink( $file['path'] );
         }
@@ -742,7 +740,7 @@ class Meow_MWAI_Modules_Files {
   /**
    * Get effective user ID for file ownership
    * Returns actual user ID for logged-in users, or session-based ID for guests
-   * 
+   *
    * @return int|string User ID or session-based ID
    */
   private function get_effective_user_id() {
@@ -756,7 +754,7 @@ class Meow_MWAI_Modules_Files {
 
   /**
    * Filter file IDs to only include those the user is authorized to access
-   * 
+   *
    * @param array $fileIds Array of file IDs to filter
    * @param int|string $userId User ID (can be session-based string for guests)
    * @return array Array of authorized file IDs
@@ -765,21 +763,21 @@ class Meow_MWAI_Modules_Files {
     if ( empty( $fileIds ) || empty( $userId ) ) {
       return [];
     }
-    
+
     // Admins can access all files
     if ( $this->core->can_access_settings() ) {
       return $fileIds;
     }
-    
+
     // Build query to check file ownership
     $placeholders = array_fill( 0, count( $fileIds ), '%s' );
     $query = $this->wpdb->prepare(
       "SELECT id FROM $this->table_files 
-       WHERE id IN (" . implode( ',', $placeholders ) . ") 
-       AND userId = %s",
+       WHERE id IN (" . implode( ',', $placeholders ) . ') 
+       AND userId = %s',
       array_merge( $fileIds, [ $userId ] )
     );
-    
+
     $authorizedIds = $this->wpdb->get_col( $query );
     return array_map( 'intval', $authorizedIds );
   }
@@ -795,9 +793,25 @@ class Meow_MWAI_Modules_Files {
     if ( !$purpose ) {
       return new WP_REST_Response( [ 'success' => false, 'message' => 'Purpose is required.' ], 400 );
     }
+    // Validate file type - allow audio files for transcription purpose
     $fileTypeCheck = wp_check_filetype_and_ext( $file['tmp_name'], $file['name'] );
+
+    // If WordPress doesn't recognize the type, check if it's an audio file for transcription
     if ( !$fileTypeCheck['type'] ) {
-      return new WP_REST_Response( [ 'success' => false, 'message' => 'Invalid file type.' ], 400 );
+      // Get file extension
+      $ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+
+      // Whisper supported formats: flac, m4a, mp3, mp4, mpeg, mpga, oga, ogg, wav, webm
+      $audioExtensions = [ 'flac', 'm4a', 'mp3', 'mp4', 'mpeg', 'mpga', 'oga', 'ogg', 'wav', 'webm' ];
+
+      if ( in_array( $ext, $audioExtensions ) ) {
+        // This is a valid audio file for transcription - override the type check
+        $fileTypeCheck['type'] = 'audio/' . $ext;
+        $fileTypeCheck['ext'] = $ext;
+      }
+      else {
+        return new WP_REST_Response( [ 'success' => false, 'message' => 'Invalid file type.' ], 400 );
+      }
     }
 
     try {
@@ -880,29 +894,6 @@ class Meow_MWAI_Modules_Files {
       }
     }
 
-    // LATER: REMOVE THIS AFTER MARCH 2024
-    // $this->db_check = $this->db_check && $this->wpdb->get_var( "SHOW COLUMNS FROM $this->table_files LIKE 'userId'" );
-    // if ( !$this->db_check ) {
-    //   $this->wpdb->query( "ALTER TABLE $this->table_files ADD COLUMN userId BIGINT(20) UNSIGNED NULL" );
-    //   $this->wpdb->query( "ALTER TABLE $this->table_files ADD COLUMN purpose VARCHAR(32) NULL" );
-    //   $this->wpdb->query( "ALTER TABLE $this->table_files MODIFY COLUMN path TEXT NULL" );
-    //   $this->wpdb->query( "ALTER TABLE $this->table_files DROP COLUMN metadata" );
-    //   $this->db_check = true;
-    // }
-    // // LATER: REMOVE THIS AFTER MARCH 2024
-    // $this->db_check = $this->db_check && !$this->wpdb->get_var( "SHOW COLUMNS FROM $this->table_files LIKE 'fileId'" );
-    // if ( !$this->db_check ) {
-    //   $this->wpdb->query( "ALTER TABLE $this->table_files ADD COLUMN refId VARCHAR(64) NOT NULL" );
-    //   $this->wpdb->query( "ALTER TABLE $this->table_files DROP COLUMN fileId" );
-    //   $this->db_check = true;
-    // }
-    // // LATER: REMOVE THIS AFTER MARCH 2024
-    // $this->db_check = $this->db_check && $this->wpdb->get_var( "SHOW COLUMNS FROM $this->table_files LIKE 'envId'" );
-    // if ( !$this->db_check ) {
-    //   $this->wpdb->query( "ALTER TABLE $this->table_files ADD COLUMN envId VARCHAR(128) NULL" );
-    //   $this->db_check = true;
-    // }
-
     return $this->db_check;
   }
 
@@ -910,11 +901,11 @@ class Meow_MWAI_Modules_Files {
 
   /**
    * Handle cleanup task for files
+   * Deletes files that have passed their expiration date
    */
   public function handle_cleanup_task( $result, $job ) {
     $start = microtime( true );
-    $orphan_days = 30; // Delete files older than 30 days
-    
+
     // Check if files table exists
     $table_exists = $this->wpdb->get_var( "SHOW TABLES LIKE '{$this->table_files}'" );
     if ( !$table_exists ) {
@@ -924,78 +915,135 @@ class Meow_MWAI_Modules_Files {
         'message' => 'Files table does not exist yet',
       ];
     }
-    
+
     // Get current progress
     $deleted_total = isset( $job['meta']['deleted_total'] ) ? (int) $job['meta']['deleted_total'] : 0;
+    $deleted_attachments = isset( $job['meta']['deleted_attachments'] ) ? (int) $job['meta']['deleted_attachments'] : 0;
     $last_id = isset( $job['meta']['last_id'] ) ? (int) $job['meta']['last_id'] : 0;
-    
-    // Clean up orphaned database records
+    $processing_attachments = isset( $job['meta']['processing_attachments'] ) ? (bool) $job['meta']['processing_attachments'] : false;
+
     $batch_size = 100;
-    $deleted_batch = 0;
-    
-    $orphan_cutoff = date( 'Y-m-d H:i:s', strtotime( "-{$orphan_days} days" ) );
-    
-    $orphan_files = $this->wpdb->get_results( $this->wpdb->prepare(
-      "SELECT id, path FROM {$this->table_files} 
-       WHERE updated < %s AND id > %d 
-       ORDER BY id ASC 
-       LIMIT %d",
-      $orphan_cutoff, $last_id, $batch_size
-    ) );
-    
-    if ( !empty( $orphan_files ) ) {
-      foreach ( $orphan_files as $file ) {
-        // Try to delete physical file if it exists
-        if ( !empty( $file->path ) && file_exists( $file->path ) ) {
-          @unlink( $file->path );
+    $current_time = current_time( 'mysql' );
+
+    // First, process expired files from database
+    if ( !$processing_attachments ) {
+      $expired_files = $this->wpdb->get_results( $this->wpdb->prepare(
+        "SELECT * FROM {$this->table_files}
+         WHERE expires IS NOT NULL AND expires < %s AND id > %d
+         ORDER BY id ASC
+         LIMIT %d",
+        $current_time,
+        $last_id,
+        $batch_size
+      ) );
+
+      if ( !empty( $expired_files ) ) {
+        $fileRefs = [];
+        foreach ( $expired_files as $file ) {
+          $fileRefs[] = $file->refId;
+        }
+        $this->delete_expired_files( $fileRefs );
+
+        $deleted_total += count( $expired_files );
+        $last_id = end( $expired_files )->id;
+
+        $time_elapsed = microtime( true ) - $start;
+
+        // Continue processing files if we have more and time allows
+        if ( count( $expired_files ) === $batch_size && $time_elapsed < 8 ) {
+          return [
+            'ok' => true,
+            'done' => false,
+            'message' => sprintf( 'Deleted %d expired files (total: %d)', count( $expired_files ), $deleted_total ),
+            'meta' => [
+              'deleted_total' => $deleted_total,
+              'deleted_attachments' => $deleted_attachments,
+              'last_id' => $last_id,
+              'processing_attachments' => false,
+            ],
+            'step' => $job['step'] + 1,
+            'step_name' => 'batch_' . ( $job['step'] + 1 ),
+          ];
+        }
+
+        // Move to attachments processing
+        $processing_attachments = true;
+        $last_id = 0;
+      }
+      else {
+        // No expired files, move to attachments
+        $processing_attachments = true;
+      }
+    }
+
+    // Process expired media library attachments
+    if ( $processing_attachments ) {
+      $expired_posts = get_posts( [
+        'post_type' => 'attachment',
+        'posts_per_page' => $batch_size,
+        'offset' => $last_id,
+        'meta_query' => [
+          [
+            'key' => '_mwai_file_expires',
+            'value' => $current_time,
+            'compare' => '<',
+            'type' => 'DATETIME'
+          ]
+        ]
+      ] );
+
+      if ( !empty( $expired_posts ) ) {
+        $fileRefs = [];
+        foreach ( $expired_posts as $post ) {
+          $fileRefs[] = get_post_meta( $post->ID, '_mwai_file_id', true );
+        }
+        $this->delete_expired_files( $fileRefs );
+
+        $deleted_attachments += count( $expired_posts );
+        $last_id += count( $expired_posts );
+
+        $time_elapsed = microtime( true ) - $start;
+
+        // Continue processing attachments if we have more and time allows
+        if ( count( $expired_posts ) === $batch_size && $time_elapsed < 8 ) {
+          return [
+            'ok' => true,
+            'done' => false,
+            'message' => sprintf(
+              'Deleted %d expired attachments (total: %d files, %d attachments)',
+              count( $expired_posts ),
+              $deleted_total,
+              $deleted_attachments
+            ),
+            'meta' => [
+              'deleted_total' => $deleted_total,
+              'deleted_attachments' => $deleted_attachments,
+              'last_id' => $last_id,
+              'processing_attachments' => true,
+            ],
+            'step' => $job['step'] + 1,
+            'step_name' => 'batch_' . ( $job['step'] + 1 ),
+          ];
         }
       }
-      
-      // Delete database records
-      $ids = wp_list_pluck( $orphan_files, 'id' );
-      $ids_string = implode( ',', array_map( 'intval', $ids ) );
-      
-      // Delete from filemeta first (foreign key constraint)
-      $this->wpdb->query(
-        "DELETE FROM {$this->table_filemeta} WHERE file_id IN ($ids_string)"
-      );
-      
-      // Then delete from files
-      $deleted_batch = $this->wpdb->query(
-        "DELETE FROM {$this->table_files} WHERE id IN ($ids_string)"
-      );
-      
-      $deleted_total += $deleted_batch;
-      $last_id = end( $ids );
     }
-    
-    // Check if we have more to process or time is running out
-    $has_more = count( $orphan_files ) === $batch_size;
-    $time_elapsed = microtime( true ) - $start;
-    
-    if ( $has_more && $time_elapsed < 8 ) {
-      // Continue processing
-      return [
-        'ok' => true,
-        'done' => false,
-        'message' => sprintf( 'Deleted %d files (total: %d)', $deleted_batch, $deleted_total ),
-        'meta' => [
-          'deleted_total' => $deleted_total,
-          'last_id' => $last_id,
-        ],
-        'step' => $job['step'] + 1,
-        'step_name' => 'batch_' . ( $job['step'] + 1 ),
-      ];
-    }
-    
+
     // Completed
+    $total_deleted = $deleted_total + $deleted_attachments;
     return [
       'ok' => true,
       'done' => true,
-      'message' => sprintf( 'Cleanup complete. Deleted %d files older than %d days', $deleted_total, $orphan_days ),
+      'message' => sprintf(
+        'Cleanup complete. Deleted %d expired files (%d filesystem, %d media library)',
+        $total_deleted,
+        $deleted_total,
+        $deleted_attachments
+      ),
       'meta' => [
         'deleted_total' => 0,
+        'deleted_attachments' => 0,
         'last_id' => 0,
+        'processing_attachments' => false,
       ],
     ];
   }

@@ -3,6 +3,7 @@
 class Meow_MWAI_Query_Text extends Meow_MWAI_Query_Base implements JsonSerializable {
   // Core Content
   public ?Meow_MWAI_Query_DroppedFile $attachedFile = null;
+  public ?array $attachedFiles = null; // Multiple files support
 
   // Parameters
   public ?float $temperature = null;
@@ -14,7 +15,7 @@ class Meow_MWAI_Query_Text extends Meow_MWAI_Query_Base implements JsonSerializa
 
   #region Constructors, Serialization
 
-  public function __construct( ?string $message = '', ?int $maxTokens = null, string $model = null ) {
+  public function __construct( ?string $message = '', ?int $maxTokens = null, ?string $model = null ) {
     parent::__construct( $message );
     if ( !empty( $model ) ) {
       $this->set_model( $model );
@@ -58,6 +59,11 @@ class Meow_MWAI_Query_Text extends Meow_MWAI_Query_Base implements JsonSerializa
       }
     }
 
+    if ( !empty( $this->attachedFiles ) ) {
+      $json['context']['hasFiles'] = true;
+      $json['context']['fileCount'] = count( $this->attachedFiles );
+    }
+
     return $json;
   }
 
@@ -65,8 +71,42 @@ class Meow_MWAI_Query_Text extends Meow_MWAI_Query_Base implements JsonSerializa
 
   #region File Handling
 
-  public function set_file( Meow_MWAI_Query_DroppedFile $file ): void {
-    $this->attachedFile = $file;
+  /**
+   * Get all attached files as a normalized array.
+   * This method provides backward compatibility by merging both attachedFile (legacy)
+   * and attachedFiles (current) into a single array.
+   *
+   * @return Meow_MWAI_Query_DroppedFile[] Array of attached files
+   */
+  public function getAttachments(): array {
+    $files = $this->attachedFiles ?? [];
+
+    // Backward compatibility: include legacy attachedFile if it exists and isn't already in the array
+    if ( $this->attachedFile && !in_array( $this->attachedFile, $files, true ) ) {
+      // Prepend the single file so it appears first (maintains legacy behavior)
+      array_unshift( $files, $this->attachedFile );
+    }
+
+    return $files;
+  }
+
+  /**
+   * Add a file to the attachedFiles array.
+   * This is the unified method for both single and multi-file uploads.
+   */
+  public function add_file( Meow_MWAI_Query_DroppedFile $file ): void {
+    if ( $this->attachedFiles === null ) {
+      $this->attachedFiles = [];
+    }
+    $this->attachedFiles[] = $file;
+  }
+
+  public function set_files( array $files ): void {
+    $this->attachedFiles = $files;
+  }
+
+  public function get_files(): ?array {
+    return $this->attachedFiles;
   }
 
   #endregion
@@ -116,12 +156,12 @@ class Meow_MWAI_Query_Text extends Meow_MWAI_Query_Base implements JsonSerializa
 
   /**
   * Set the reasoning effort for GPT-5 models.
-  * @param string $reasoning The reasoning effort level (minimal, low, medium, high).
+  * @param string $reasoning The reasoning effort level (none, minimal, low, medium, high, xhigh).
   */
   public function set_reasoning( string $reasoning ): void {
-    $valid = ['minimal', 'low', 'medium', 'high'];
+    $valid = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
     if ( !in_array( $reasoning, $valid ) ) {
-      throw new Exception( 'AI Engine: Invalid reasoning level. Must be one of: minimal, low, medium, high.' );
+      throw new Exception( 'AI Engine: Invalid reasoning level. Must be one of: none, minimal, low, medium, high, xhigh.' );
     }
     $this->reasoning = $reasoning;
   }
@@ -173,13 +213,6 @@ class Meow_MWAI_Query_Text extends Meow_MWAI_Query_Base implements JsonSerializa
     if ( !empty( $params['promptId'] ) ) {
       $this->setExtraParam( 'promptId', $params['promptId'] );
     }
-    // TODO: Prompt Variables support - might be added later
-    // if ( !empty( $params['promptVariables'] ) ) {
-    //   $this->setExtraParam( 'promptVariables', $params['promptVariables'] );
-    // }
-    // if ( !empty( $params['promptVersion'] ) ) {
-    //   $this->setExtraParam( 'promptVersion', $params['promptVersion'] );
-    // }
   }
 
   #endregion

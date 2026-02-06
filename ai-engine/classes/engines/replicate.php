@@ -52,35 +52,48 @@ class Meow_MWAI_Engines_Replicate extends Meow_MWAI_Engines_Core {
       $messages[] = $message;
     }
 
-    // If there is a context, we need to add it.
+    // If there is a context, we need to add it with proper framing.
     if ( !empty( $query->context ) ) {
-      $messages[] = [ 'role' => 'system', 'content' => $query->context ];
+      $framedContext = $this->core->frame_context( $query->context );
+      $messages[] = [ 'role' => 'system', 'content' => $framedContext ];
     }
 
     // Finally, we need to add the message, but if there is an image, we need to add it as a system message.
-    if ( $query->attachedFile ) {
-      $finalUrl = null;
-      if ( $query->image_remote_upload ) {
-        $finalUrl = $query->attachedFile->get_url();
+    $attachments = method_exists( $query, 'getAttachments' ) ? $query->getAttachments() : [];
+    if ( !empty( $attachments ) ) {
+      // Get first image attachment
+      $imageFile = null;
+      foreach ( $attachments as $file ) {
+        $mimeType = $file->get_mimeType() ?? '';
+        if ( strpos( $mimeType, 'image/' ) === 0 ) {
+          $imageFile = $file;
+          break;
+        }
       }
-      else {
-        $finalUrl = $query->attachedFile->get_inline_base64_url();
-      }
-      $messages[] = [
-        'role' => 'user',
-        'content' => [
-          [
-            'type' => 'text',
-            'text' => $query->get_message()
-          ],
-          [
-            'type' => 'image_url',
-            'image_url' => [
-              'url' => $finalUrl
+
+      if ( $imageFile ) {
+        $finalUrl = $query->image_remote_upload
+          ? $imageFile->get_url()
+          : $imageFile->get_inline_base64_url();
+        $messages[] = [
+          'role' => 'user',
+          'content' => [
+            [
+              'type' => 'text',
+              'text' => $query->get_message()
+            ],
+            [
+              'type' => 'image_url',
+              'image_url' => [
+                'url' => $finalUrl
+              ]
             ]
           ]
-        ]
-      ];
+        ];
+      }
+      else {
+        $messages[] = [ 'role' => 'user', 'content' => $query->get_message() ];
+      }
     }
     else {
       $messages[] = [ 'role' => 'user', 'content' => $query->get_message() ];
@@ -278,7 +291,7 @@ class Meow_MWAI_Engines_Replicate extends Meow_MWAI_Engines_Core {
       $this->apiKey = $query->apiKey;
     }
     if ( empty( $this->apiKey ) ) {
-      throw new Exception( 'No API Key provided. Please visit the Settings.' );
+      throw new Exception( 'No API Key provided. Please visit the Settings. (Replicate Engine)' );
     }
     $headers = [
       'Content-Type' => 'application/json',
@@ -301,14 +314,14 @@ class Meow_MWAI_Engines_Replicate extends Meow_MWAI_Engines_Core {
       $body = $this->build_form_body( $forms, $boundary );
     }
     else if ( !empty( $json ) ) {
-      $body = json_encode( $json );
+      $body = $this->safe_json_encode( $json, 'request body' );
     }
     $options = [
       'headers' => $headers,
       'method' => $method,
       'timeout' => MWAI_TIMEOUT,
       'body' => $body,
-      'sslverify' => false
+      'sslverify' => MWAI_SSL_VERIFY
     ];
     return $options;
   }
@@ -624,7 +637,7 @@ class Meow_MWAI_Engines_Replicate extends Meow_MWAI_Engines_Core {
     $overrideUrl = false
   ) {
     $headers = "Content-Type: application/json\r\n" . 'Authorization: Bearer ' . $this->apiKey . "\r\n";
-    $body = $query ? json_encode( $query ) : null;
+    $body = $query ? $this->safe_json_encode( $query, 'query body' ) : null;
     if ( !empty( $formFields ) ) {
       $boundary = wp_generate_password( 24, false );
       $headers = [
@@ -660,7 +673,7 @@ class Meow_MWAI_Engines_Replicate extends Meow_MWAI_Engines_Core {
       'method' => $method,
       'timeout' => MWAI_TIMEOUT,
       'body' => $body,
-      'sslverify' => false
+      'sslverify' => MWAI_SSL_VERIFY
     ];
 
     try {

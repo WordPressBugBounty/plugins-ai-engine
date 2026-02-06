@@ -67,7 +67,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
     }
   }
 
-  private function get_azure_deployment_name( $model ) {
+  protected function get_azure_deployment_name( $model ) {
     foreach ( $this->azureDeployments as $deployment ) {
       if ( $deployment['model'] === $model && !empty( $deployment['name'] ) ) {
         return $deployment['name'];
@@ -117,34 +117,51 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       $messages[] = $message;
     }
 
-    // If there is a context, we need to add it.
+    // If there is a context, we need to add it with proper framing.
     if ( !empty( $query->context ) ) {
-      $messages[] = [ 'role' => 'system', 'content' => $query->context ];
+      $framedContext = $this->core->frame_context( $query->context );
+      $messages[] = [ 'role' => 'system', 'content' => $framedContext ];
     }
 
     // Finally, we need to add the message, but if there is an image, we need to add it as a system message.
-    if ( $query->attachedFile ) {
-      $finalUrl = null;
-      if ( $query->image_remote_upload === 'url' ) {
-        $finalUrl = $query->attachedFile->get_url();
-      }
-      else {
-        $finalUrl = $query->attachedFile->get_inline_base64_url();
-      }
-      $messages[] = [
-        'role' => 'user',
-        'content' => [
-          [
-            'type' => 'text',
-            'text' => $query->get_message()
-          ],
-          [
+    $attachments = method_exists( $query, 'getAttachments' ) ? $query->getAttachments() : [];
+    if ( !empty( $attachments ) ) {
+      $content = [
+        [
+          'type' => 'text',
+          'text' => $query->get_message()
+        ]
+      ];
+
+      // Handle all attachments (unified approach)
+      foreach ( $attachments as $file ) {
+        // Check file type BEFORE trying to access file data
+        // Images can be loaded via URL or base64, but PDFs might use OpenAI file_id references
+        $mimeType = $file->get_mimeType() ?? '';
+        $isImage = strpos( $mimeType, 'image/' ) === 0;
+
+        if ( $isImage ) {
+          $finalUrl = null;
+          if ( $query->image_remote_upload === 'url' ) {
+            $finalUrl = $file->get_url();
+          }
+          else {
+            $finalUrl = $file->get_inline_base64_url();
+          }
+
+          $content[] = [
             'type' => 'image_url',
             'image_url' => [
               'url' => $finalUrl
             ]
-          ]
-        ]
+          ];
+        }
+        // Skip non-images for Chat Completions API
+      }
+
+      $messages[] = [
+        'role' => 'user',
+        'content' => $content
       ];
     }
     else {
@@ -276,21 +293,43 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       return $body;
     }
     else if ( $query instanceof Meow_MWAI_Query_Transcribe ) {
-      // Determine filename
+      // Determine filename and MIME type
       $filename = 'audio.mp3'; // default
-      if ( !empty( $query->url ) ) {
+      $mimeType = 'audio/mpeg'; // default
+      $attachments = method_exists( $query, 'getAttachments' ) ? $query->getAttachments() : [];
+      if ( !empty( $attachments ) ) {
+        $firstAttachment = $attachments[0];
+        if ( method_exists( $firstAttachment, 'get_filename' ) ) {
+          $filename = $firstAttachment->get_filename();
+        }
+        if ( method_exists( $firstAttachment, 'get_mimeType' ) ) {
+          $detectedMime = $firstAttachment->get_mimeType();
+          if ( !empty( $detectedMime ) ) {
+            $mimeType = $detectedMime;
+          }
+        }
+      }
+      else if ( !empty( $query->url ) ) {
         $filename = basename( $query->url );
       }
-      else if ( $query->attachedFile && method_exists( $query->attachedFile, 'get_filename' ) ) {
-        $filename = $query->attachedFile->get_filename();
+
+      // Guard against malformed filenames coming from form prompts/placeholders
+      if ( empty( $filename ) ) {
+        $filename = 'audio.mp3';
       }
-      
+      $filename = preg_replace( "/[\r\n]+/", '', $filename );
+      $mimeType = preg_replace( "/[\r\n]+/", '', $mimeType );
+      if ( empty( $mimeType ) ) {
+        $mimeType = 'audio/mpeg';
+      }
+
       $body = [
         'prompt' => $query->message,
         'model' => $query->model,
         'response_format' => 'text',
         'file' => $filename,
-        'data' => $extra
+        'data' => $extra,
+        'mime' => $mimeType
       ];
       return $body;
     }
@@ -307,8 +346,10 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
     }
     else if ( $query instanceof Meow_MWAI_Query_EditImage ) {
       $resolution = !empty( $query->resolution ) ? $query->resolution : '1024x1024';
-      $filename = $query->attachedFile ? $query->attachedFile->get_filename() : '';
-      $mimeType = $query->attachedFile ? $query->attachedFile->get_mimeType() : null;
+      $attachments = method_exists( $query, 'getAttachments' ) ? $query->getAttachments() : [];
+      $firstFile = !empty( $attachments ) ? $attachments[0] : null;
+      $filename = $firstFile ? $firstFile->get_filename() : '';
+      $mimeType = $firstFile ? $firstFile->get_mimeType() : null;
       $body = [
         'prompt' => $query->message,
         'n' => $query->maxResults,
@@ -350,14 +391,14 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       // TODO: Let's clean this up; with a better Query Image class.
       // https://platform.openai.com/docs/api-reference/images/create#images-create-quality
 
-      if ( $model === 'gpt-image-1' ) {
-        // If it's GPT Image 1, we need to set the quality and moderation.
-        $body['model'] = 'gpt-image-1';
+      if ( strpos( $model, 'gpt-image' ) === 0 ) {
+        // GPT Image models (token-based pricing)
+        $body['model'] = $model; // Use the actual model name
         $body['quality'] = 'high';
         $body['moderation'] = 'low';
       }
       else {
-        // If it's DALL-E 3, we need to set the response format.
+        // DALL-E models (per-image pricing)
         $body['response_format'] = 'b64_json';
         if ( $model === 'dall-e-3' ) {
           $body['model'] = 'dall-e-3';
@@ -450,7 +491,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       $this->apiKey = $query->apiKey;
     }
     if ( empty( $this->apiKey ) ) {
-      throw new Exception( 'No API Key provided. Please visit the Settings.' );
+      throw new Exception( 'No API Key provided. Please visit the Settings. (ChatML Engine)' );
     }
     $headers = [
       'Content-Type' => 'application/json',
@@ -473,14 +514,14 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       $body = $this->build_form_body( $forms, $boundary );
     }
     else if ( !empty( $json ) ) {
-      $body = json_encode( $json );
+      $body = $this->safe_json_encode( $json, 'request body' );
     }
     $options = [
       'headers' => $headers,
       'method' => $method,
       'timeout' => MWAI_TIMEOUT,
       'body' => $body,
-      'sslverify' => false
+      'sslverify' => MWAI_SSL_VERIFY
     ];
     return $options;
   }
@@ -702,7 +743,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
           'content' => null
         ];
       }
-      
+
       // Handle thinking/reasoning content (from Ollama and potentially other models)
       // This can appear alongside or instead of regular content
       if ( isset( $json['choices'][0]['delta']['reasoning'] ) ) {
@@ -759,11 +800,11 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
   public function run( $query, $streamCallback = null, $maxDepth = 5 ) {
     // Check if this is a realtime model being used with chat completions
     if ( $this->is_realtime_model( $query->model ) ) {
-      throw new Exception( 
+      throw new Exception(
         'Realtime models (like ' . $query->model . ') are designed for voice/audio interactions and cannot be used with this API.'
       );
     }
-    
+
     if ( $streamCallback ) {
       // Disable streaming only for "o1" (as December 2024, it works for preview and mini)
       if ( $query->model === 'o1' ) {
@@ -814,11 +855,23 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       }
       else if ( $responseCode === 400 ) {
         $message = wp_remote_retrieve_body( $res );
+        // Log the full response body for debugging
+        error_log( '[AI Engine] 400 Bad Request - Full response body: ' . $message );
         if ( empty( $message ) ) {
           $message = wp_remote_retrieve_response_message( $res );
         }
         if ( empty( $message ) ) {
           $message = 'Bad Request';
+        }
+        throw new Exception( $message );
+      }
+      else if ( $responseCode === 422 ) {
+        $message = wp_remote_retrieve_body( $res );
+        if ( empty( $message ) ) {
+          $message = wp_remote_retrieve_response_message( $res );
+        }
+        if ( empty( $message ) ) {
+          $message = 'Unprocessable Entity';
         }
         throw new Exception( $message );
       }
@@ -893,15 +946,28 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
 
   private function get_audio( $url ) {
     require_once( ABSPATH . 'wp-admin/includes/media.php' );
-    
+
     // Validate URL scheme to prevent SSRF attacks
     $parts = wp_parse_url( $url );
-    if ( ! isset( $parts['scheme'] ) || ! in_array( $parts['scheme'], [ 'http', 'https' ], true ) ) {
+    if ( !isset( $parts['scheme'] ) || !in_array( $parts['scheme'], [ 'http', 'https' ], true ) ) {
       throw new Exception( 'Invalid URL scheme; only HTTP/HTTPS allowed.' );
     }
-    
+
+    // Use wp_safe_remote_get to block localhost/private IPs (SSRF protection)
+    $response = wp_safe_remote_get( $url, [
+      'timeout' => 60,
+      'redirection' => 0  // Prevent redirect-based bypass
+    ] );
+    if ( is_wp_error( $response ) ) {
+      throw new Exception( 'Failed to download audio: ' . $response->get_error_message() );
+    }
+    $audio_data = wp_remote_retrieve_body( $response );
+    if ( empty( $audio_data ) ) {
+      throw new Exception( 'Failed to download audio: empty response.' );
+    }
+
     $tmpFile = tempnam( sys_get_temp_dir(), 'audio_' );
-    file_put_contents( $tmpFile, file_get_contents( $url ) );
+    file_put_contents( $tmpFile, $audio_data );
     $length = null;
     $metadata = wp_read_audio_metadata( $tmpFile );
     if ( isset( $metadata['length'] ) ) {
@@ -914,7 +980,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
 
   public function run_transcribe_query( $query ) {
     $audioData = null;
-    
+
     // Priority 1: Direct audio data
     if ( !empty( $query->audioData ) ) {
       $audioData = [
@@ -936,11 +1002,15 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       ];
     }
     // Priority 3: Attached file object
-    else if ( $query->attachedFile ) {
-      $audioData = [
-        'data' => $query->attachedFile->get_data(),
-        'length' => strlen( $query->attachedFile->get_data() ) / 1024 // KB
-      ];
+    else if ( method_exists( $query, 'getAttachments' ) ) {
+      $attachments = $query->getAttachments();
+      if ( !empty( $attachments ) ) {
+        $file = $attachments[0];
+        $audioData = [
+          'data' => $file->get_data(),
+          'length' => strlen( $file->get_data() ) / 1024 // KB
+        ];
+      }
     }
     // Priority 4: URL (backward compatibility)
     else if ( !empty( $query->url ) ) {
@@ -950,7 +1020,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       $audioData = $this->get_audio( $query->url );
     }
     else {
-      throw new Exception( 'No audio source provided for transcription. Please provide either audioData, path, attachedFile, or url.' );
+      throw new Exception( 'No audio source provided for transcription. Please provide either audioData, path, attachedFiles, or url.' );
     }
 
     $body = $this->build_body( $query, null, $audioData['data'] );
@@ -1036,7 +1106,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
     if ( $this->is_gpt5_model( $query->model ) ) {
       throw new Exception( 'GPT-5 models only support the Responses API. Please enable "Use Responses API" in AI Engine settings to use ' . $query->model . '.' );
     }
-    
+
     $isStreaming = !is_null( $streamCallback );
 
     // Initialize debug mode
@@ -1087,7 +1157,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
         }
         $returned_id = $this->inId;
         $returned_model = $this->inModel ? $this->inModel : $query->model;
-        
+
         // Use regular content if available, otherwise fall back to thinking/reasoning
         $finalContent = $this->streamContent;
         if ( empty( $finalContent ) && !empty( $this->streamThinking ) ) {
@@ -1095,13 +1165,13 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
           // This happens with Ollama when it returns only reasoning/thinking
           // Wrap in asterisks to show as italics in markdown
           $finalContent = '*' . $this->streamThinking . '*';
-          
+
           // Log this for debugging
           if ( $this->core->get_option( 'queries_debug_mode' ) ) {
             error_log( '[AI Engine] Using thinking/reasoning content as fallback (no regular content available)' );
           }
         }
-        
+
         $message = [ 'role' => 'assistant', 'content' => $finalContent ];
         // Prefer tool_calls; fall back to legacy only if necessary
         if ( !empty( $this->streamToolCalls ) ) {
@@ -1110,7 +1180,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
         elseif ( !empty( $this->streamFunctionCall ) ) {
           $message['function_call'] = $this->streamFunctionCall;
         }
-        
+
         // Optionally include thinking as metadata if both content and thinking exist
         if ( !empty( $this->streamContent ) && !empty( $this->streamThinking ) ) {
           $message['thinking'] = $this->streamThinking;
@@ -1174,7 +1244,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
         if ( empty( $data ) ) {
           throw new Exception( 'No content received (res is null).' );
         }
-        
+
         // Comprehensive logging for non-streaming mode - capture FULL response
         $queries_debug = $this->core->get_option( 'queries_debug_mode' );
         if ( $queries_debug ) {
@@ -1182,11 +1252,11 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
           error_log( '[AI Engine Queries] FULL RESPONSE STRUCTURE (Non-streaming ChatML):' );
           error_log( json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
           error_log( '[AI Engine Queries] ========================================' );
-          
+
           // Look specifically for container_id
           $this->search_for_container_id_recursive( $data, '' );
         }
-        
+
         if ( !$data['model'] ) {
           $service = $this->get_service_name();
           Meow_MWAI_Logging::error( "$service: Invalid response (no model information)." );
@@ -1259,6 +1329,9 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
     );
     $reply->set_usage( $usage );
 
+    // Store the actual model returned by the API
+    $reply->set_model( $returned_model );
+
     // Set default accuracy to 'estimated' for engines that don't override
     // Most engines (Google, Anthropic, etc.) estimate tokens and calculate price
     $reply->set_usage_accuracy( 'estimated' );
@@ -1279,9 +1352,40 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       $reply = new Meow_MWAI_Reply( $query );
       $model = $query->model;
       $resolution = !empty( $query->resolution ) ? $query->resolution : '1024x1024';
-      $usage = $this->core->record_images_usage( $model, $resolution, $query->maxResults );
-      $reply->set_usage( $usage );
-      $reply->set_usage_accuracy( 'estimated' ); // Image generation always uses estimated pricing
+
+      // Image models use two different pricing models:
+      // 1. Token-based (gpt-image-1, gpt-image-1-mini): API returns usage.input_tokens and usage.output_tokens
+      //    Price: (input_tokens × $10 + output_tokens × $40) / 1M
+      // 2. Per-image (DALL-E): API returns no usage data, price based on resolution
+      //    Price: Fixed per image (e.g., $0.040 for 1024x1024)
+
+      if ( isset( $data['usage'] ) ) {
+        // Token-based model (gpt-image-1, gpt-image-1-mini)
+        $usage = $data['usage'];
+
+        // IMPORTANT: OpenAI Images API uses 'input_tokens' and 'output_tokens',
+        // not 'prompt_tokens' and 'completion_tokens' like the Chat API
+        $promptTokens = $usage['input_tokens'] ?? $usage['prompt_tokens'] ?? 0;
+        $completionTokens = $usage['output_tokens'] ?? $usage['completion_tokens'] ?? 0;
+
+        // Record token usage for statistics tracking
+        // Note: Price calculation happens in get_price() method, not here
+        $this->core->record_tokens_usage( $model, $promptTokens, $completionTokens );
+
+        // Set usage data with token info and accuracy level
+        $usage['queries'] = 1;
+        $usage['accuracy'] = 'tokens';
+
+        $reply->set_usage( $usage );
+        $reply->set_usage_accuracy( $usage['accuracy'] );
+      }
+      else {
+        // Per-image model (DALL-E): No token data, use resolution-based pricing
+        $usage = $this->core->record_images_usage( $model, $resolution, $query->maxResults );
+        $reply->set_usage( $usage );
+        $reply->set_usage_accuracy( isset( $usage['accuracy'] ) ? $usage['accuracy'] : 'estimated' );
+      }
+
       $reply->set_choices( $choices );
       $reply->set_type( 'images' );
 
@@ -1307,7 +1411,8 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
   }
 
   public function run_editimage_query( $query ) {
-    if ( empty( $query->attachedFile ) ) {
+    $attachments = method_exists( $query, 'getAttachments' ) ? $query->getAttachments() : [];
+    if ( empty( $attachments ) ) {
       throw new Exception( 'No image provided for editing.' );
     }
     // Ensure the model supports image editing
@@ -1315,7 +1420,8 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
     if ( empty( $modelInfo['tags'] ) || !in_array( 'image-edit', $modelInfo['tags'] ) ) {
       throw new Exception( 'The model ' . $query->model . ' does not support image editing.' );
     }
-    $imageData = $query->attachedFile->get_data();
+    $file = $attachments[0];
+    $imageData = $file->get_data();
     $body = $this->build_body( $query, null, $imageData );
     $url = $this->build_url( $query );
     $headers = $this->build_headers( $query );
@@ -1328,9 +1434,40 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       $reply = new Meow_MWAI_Reply( $query );
       $model = $query->model;
       $resolution = !empty( $query->resolution ) ? $query->resolution : '1024x1024';
-      $usage = $this->core->record_images_usage( $model, $resolution, $query->maxResults );
-      $reply->set_usage( $usage );
-      $reply->set_usage_accuracy( 'estimated' ); // Image generation always uses estimated pricing
+
+      // Image models use two different pricing models:
+      // 1. Token-based (gpt-image-1, gpt-image-1-mini): API returns usage.input_tokens and usage.output_tokens
+      //    Price: (input_tokens × $10 + output_tokens × $40) / 1M
+      // 2. Per-image (DALL-E): API returns no usage data, price based on resolution
+      //    Price: Fixed per image (e.g., $0.040 for 1024x1024)
+
+      if ( isset( $data['usage'] ) ) {
+        // Token-based model (gpt-image-1, gpt-image-1-mini)
+        $usage = $data['usage'];
+
+        // IMPORTANT: OpenAI Images API uses 'input_tokens' and 'output_tokens',
+        // not 'prompt_tokens' and 'completion_tokens' like the Chat API
+        $promptTokens = $usage['input_tokens'] ?? $usage['prompt_tokens'] ?? 0;
+        $completionTokens = $usage['output_tokens'] ?? $usage['completion_tokens'] ?? 0;
+
+        // Record token usage for statistics tracking
+        // Note: Price calculation happens in get_price() method, not here
+        $this->core->record_tokens_usage( $model, $promptTokens, $completionTokens );
+
+        // Set usage data with token info and accuracy level
+        $usage['queries'] = 1;
+        $usage['accuracy'] = 'tokens';
+
+        $reply->set_usage( $usage );
+        $reply->set_usage_accuracy( $usage['accuracy'] );
+      }
+      else {
+        // Per-image model (DALL-E): No token data, use resolution-based pricing
+        $usage = $this->core->record_images_usage( $model, $resolution, $query->maxResults );
+        $reply->set_usage( $usage );
+        $reply->set_usage_accuracy( isset( $usage['accuracy'] ) ? $usage['accuracy'] : 'estimated' );
+      }
+
       $reply->set_choices( $choices );
       $reply->set_type( 'images' );
 
@@ -1487,18 +1624,57 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
   }
 
   public function upload_file( $filename, $data, $purpose = 'fine-tune' ) {
-    $result = $this->execute( 'POST', '/files', null, [
-      'purpose' => $purpose,
-      'data' => $data,
-      'file' => $filename
+    global $wp_filter;
+
+    // Build multipart form data
+    $boundary = wp_generate_password( 24, false );
+    $body = '';
+    $body .= "--$boundary\r\n";
+    $body .= "Content-Disposition: form-data; name=\"purpose\"\r\n\r\n";
+    $body .= $purpose . "\r\n";
+    $body .= "--$boundary\r\n";
+    $body .= "Content-Disposition: form-data; name=\"file\"; filename=\"{$filename}\"\r\n";
+    $body .= "Content-Type: application/octet-stream\r\n\r\n";
+    $body .= $data . "\r\n";
+    $body .= "--$boundary--\r\n";
+
+    // Temporarily remove ALL http_api_curl hooks to prevent streaming hook interference
+    // Save current hooks
+    $saved_hooks = null;
+    if ( isset( $wp_filter['http_api_curl'] ) ) {
+      $saved_hooks = $wp_filter['http_api_curl'];
+      unset( $wp_filter['http_api_curl'] );
+    }
+
+    // Upload using WordPress HTTP API
+    $url = 'https://api.openai.com/v1/files';
+    $response = wp_remote_post( $url, [
+      'headers' => [
+        'Authorization' => 'Bearer ' . $this->apiKey,
+        'Content-Type' => 'multipart/form-data; boundary=' . $boundary
+      ],
+      'body' => $body,
+      'timeout' => 60
     ] );
-    return $result;
+
+    // Restore hooks
+    if ( $saved_hooks !== null ) {
+      $wp_filter['http_api_curl'] = $saved_hooks;
+    }
+
+    if ( is_wp_error( $response ) ) {
+      throw new Exception( 'File upload failed: ' . $response->get_error_message() );
+    }
+
+    $response_body = wp_remote_retrieve_body( $response );
+    return json_decode( $response_body, true );
   }
 
   public function create_vector_store( $name = null, $expiry = null, $metadata = null ) {
     $body = [
       'name' => !empty( $name ) ? $name : 'default',
-      'metadata' => $metadata
+      // Ensure metadata is an object (stdClass) for JSON encoding, not an array
+      'metadata' => !empty( $metadata ) ? $metadata : new stdClass()
     ];
     if ( $expiry !== 'never' ) {
       if ( is_string( $expiry ) ) {
@@ -1647,7 +1823,9 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
         $body .= $fields['mask_data'] . "\r\n";
       }
       else {
-        $body .= "\r\n\r\n$value\r\n";
+        // JSON encode arrays and objects, keep scalars as-is
+        $encodedValue = is_array( $value ) || is_object( $value ) ? json_encode( $value ) : $value;
+        $body .= "\r\n\r\n$encodedValue\r\n";
       }
     }
     $body .= "--$boundary--\r\n";
@@ -1691,7 +1869,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
 
     // Prepare the body with json_encode, if it's not a string or null, otherwise we keep it as is.
     if ( !empty( $query ) && !is_string( $query ) ) {
-      $body = json_encode( $query );
+      $body = $this->safe_json_encode( $query, 'query body' );
     }
     else {
       $body = $query;
@@ -1736,7 +1914,6 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       $hasQuery = strpos( $url, '?' ) !== false;
       $url = $url . ( $hasQuery ? '&' : '?' ) . $this->azureApiVersion;
     }
-    
 
     // If it's a GET, body should be null, and we should append the query to the URL.
     if ( $method === 'GET' ) {
@@ -1752,7 +1929,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       'method' => $method,
       'timeout' => MWAI_TIMEOUT,
       'body' => $body,
-      'sslverify' => false
+      'sslverify' => MWAI_SSL_VERIFY
     ];
 
     // Check if queries debug is enabled
@@ -1786,23 +1963,22 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       if ( is_wp_error( $res ) ) {
         throw new Exception( $res->get_error_message() );
       }
-      
-      
+
       $res = wp_remote_retrieve_body( $res );
-      
-      
+
       // Handle empty responses for container LIST API only (not for file content downloads)
-      if ( strpos( $url, '/containers/' ) !== false && 
-           strpos( $url, '/files' ) !== false && 
+      if ( strpos( $url, '/containers/' ) !== false &&
+           strpos( $url, '/files' ) !== false &&
            strpos( $url, '/content' ) === false &&  // Don't apply this to content downloads
            empty( $res ) ) {
         // Return empty array for empty container files LIST response
         $data = $json ? [] : '';
         error_log( '[AI Engine] Container LIST API returned empty response, treating as empty array' );
-      } else {
+      }
+      else {
         $data = $json ? json_decode( $res, true ) : $res;
       }
-      
+
       // Debug logging for decoded data (skip for content downloads)
       if ( strpos( $url, '/containers/' ) !== false && strpos( $url, '/files' ) !== false && strpos( $url, '/content' ) === false ) {
         error_log( '[AI Engine] After json_decode:' );
@@ -1816,7 +1992,7 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
           error_log( '[AI Engine] - JSON decode error: ' . json_last_error_msg() );
         }
       }
-      
+
       $this->handle_response_errors( $data );
 
       // Log the response if queries debug is enabled
@@ -1845,7 +2021,10 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
     $models = apply_filters( 'mwai_openai_models', MWAI_OPENAI_MODELS );
     $finetunes = !empty( $this->env['finetunes'] ) ? $this->env['finetunes'] : [];
     foreach ( $finetunes as $finetune ) {
-      if ( $finetune['status'] !== 'succeeded' ) {
+      if ( empty( $finetune['status'] ) || $finetune['status'] !== 'succeeded' ) {
+        continue;
+      }
+      if ( empty( $finetune['base_model'] ) || empty( $finetune['model'] ) || empty( $finetune['suffix'] ) ) {
         continue;
       }
       $baseModel = self::get_model_without_release_date( $finetune['base_model'] );
@@ -1878,12 +2057,12 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
     if ( is_array( $data ) || is_object( $data ) ) {
       foreach ( $data as $key => $value ) {
         $currentPath = $path ? $path . '.' . $key : $key;
-        
+
         // Check if this key is container_id
         if ( $key === 'container_id' ) {
           error_log( '[AI Engine Queries] *** FOUND container_id at path: ' . $currentPath . ' = ' . $value . ' ***' );
         }
-        
+
         // Recursively search in nested structures
         if ( is_array( $value ) || is_object( $value ) ) {
           $this->search_for_container_id_recursive( $value, $currentPath );
@@ -1951,6 +2130,21 @@ class Meow_MWAI_Engines_ChatML extends Meow_MWAI_Engines_Core {
       return $this->calculate_price( $model, $inUnits, $outUnits, null, $finetune );
     }
     else if ( is_a( $query, 'Meow_MWAI_Query_Image' ) || is_a( $query, 'Meow_MWAI_Query_EditImage' ) ) {
+      // Image models have two different pricing approaches:
+      // - Token-based (gpt-image-1, gpt-image-1-mini): Billed by input/output tokens like text models
+      // - Per-image (DALL-E): Billed by image count and resolution
+
+      // Check if this is a token-based model by looking for token data in the reply
+      if ( isset( $reply->usage['total_tokens'] ) && $reply->usage['total_tokens'] > 0 ) {
+        // Token-based pricing: Use actual token counts from API response
+        // IMPORTANT: Images API uses 'input_tokens'/'output_tokens', not 'prompt_tokens'/'completion_tokens'
+        $inUnits = $reply->usage['input_tokens'] ?? $reply->usage['prompt_tokens'] ?? 0;
+        $outUnits = $reply->usage['output_tokens'] ?? $reply->usage['completion_tokens'] ?? 0;
+        // Pass null for resolution since token-based models don't use it
+        return $this->calculate_price( $model, $inUnits, $outUnits, null, $finetune );
+      }
+
+      // Per-image pricing: Use image count and resolution
       $units = $query->maxResults;
       $resolution = $query->resolution;
       return $this->calculate_price( $model, 0, $units, $resolution, $finetune );

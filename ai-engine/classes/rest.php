@@ -20,6 +20,7 @@ class Meow_MWAI_Rest {
     if ( isset( $params['message'] ) ) {
       $message = $params['message'];
     }
+    // TODO: Remove after March 2026 - Legacy "prompt" parameter support
     elseif ( isset( $params['prompt'] ) ) {
       $message = $params['prompt'];
       unset( $params['prompt'] );
@@ -39,7 +40,7 @@ class Meow_MWAI_Rest {
 
   /**
    * Helper method to create REST responses with automatic token refresh
-   * 
+   *
    * @param array $data The response data
    * @param int $status HTTP status code
    * @return WP_REST_Response
@@ -48,18 +49,18 @@ class Meow_MWAI_Rest {
     // Always check if we need to provide a new nonce
     $current_nonce = $this->core->get_nonce( true );
     $request_nonce = isset( $_SERVER['HTTP_X_WP_NONCE'] ) ? $_SERVER['HTTP_X_WP_NONCE'] : null;
-    
+
     // Check if nonce is approaching expiration (WordPress nonces last 12-24 hours)
     // We'll refresh if the nonce is older than 10 hours to be safe
     $should_refresh = false;
-    
+
     if ( $request_nonce ) {
       // Try to determine the age of the nonce
       // WordPress uses a tick system where each tick is 12 hours
       // If we're in the second half of the nonce's life, refresh it
       $time = time();
       $nonce_tick = wp_nonce_tick();
-      
+
       // Verify if the nonce is still valid but getting old
       $verify = wp_verify_nonce( $request_nonce, 'wp_rest' );
       if ( $verify === 2 ) {
@@ -68,17 +69,17 @@ class Meow_MWAI_Rest {
         // Log will be written when token is included in response
       }
     }
-    
+
     // If the nonce has changed or should be refreshed, include the new one
     if ( $should_refresh || ( $request_nonce && $current_nonce !== $request_nonce ) ) {
       $data['new_token'] = $current_nonce;
-      
+
       // Log if server debug mode is enabled
       if ( $this->core->get_option( 'server_debug_mode' ) ) {
         error_log( '[AI Engine] Token refresh: Nonce refreshed (12-24 hours old)' );
       }
     }
-    
+
     return new WP_REST_Response( $data, $status );
   }
 
@@ -246,6 +247,56 @@ class Meow_MWAI_Rest {
         'permission_callback' => [ $this->core, 'can_access_features' ],
         'callback' => [ $this, 'rest_helpers_generate_image_meta' ],
       ] );
+      register_rest_route( $this->namespace, '/helpers/update_media_metadata', [
+        'methods' => 'POST',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_update_media_metadata' ],
+      ] );
+      register_rest_route( $this->namespace, '/helpers/create_video', [
+        'methods' => 'POST',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_create_video' ],
+      ] );
+      register_rest_route( $this->namespace, '/helpers/video_status', [
+        'methods' => 'POST',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_video_status' ],
+      ] );
+      register_rest_route( $this->namespace, '/helpers/download_video', [
+        'methods' => 'POST',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_download_video' ],
+      ] );
+      register_rest_route( $this->namespace, '/helpers/delete_video', [
+        'methods' => 'POST',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_delete_video' ],
+      ] );
+      register_rest_route( $this->namespace, '/helpers/save_video_to_library', [
+        'methods' => 'POST',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_save_video_to_library' ],
+      ] );
+      register_rest_route( $this->namespace, '/helpers/delete_video_from_library', [
+        'methods' => 'POST',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_delete_video_from_library' ],
+      ] );
+      register_rest_route( $this->namespace, '/helpers/list_draft_media', [
+        'methods' => 'GET',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_list_draft_media' ],
+      ] );
+      register_rest_route( $this->namespace, '/helpers/approve_media', [
+        'methods' => 'POST',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_approve_media' ],
+      ] );
+      register_rest_route( $this->namespace, '/helpers/reject_media', [
+        'methods' => 'POST',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_reject_media' ],
+      ] );
       register_rest_route( $this->namespace, '/helpers/count_posts', [
         'methods' => 'GET',
         'permission_callback' => [ $this->core, 'can_access_features' ],
@@ -265,6 +316,11 @@ class Meow_MWAI_Rest {
         'methods' => 'GET',
         'permission_callback' => [ $this->core, 'can_access_features' ],
         'callback' => [ $this, 'rest_helpers_post_content' ],
+      ] );
+      register_rest_route( $this->namespace, '/helpers/check_posts_content', [
+        'methods' => 'POST',
+        'permission_callback' => [ $this->core, 'can_access_features' ],
+        'callback' => [ $this, 'rest_helpers_check_posts_content' ],
       ] );
       register_rest_route( $this->namespace, '/helpers/run_tasks', [
         'methods' => 'POST',
@@ -389,13 +445,13 @@ class Meow_MWAI_Rest {
     try {
       $sessionId = $this->core->get_session_id();
       $restNonce = $this->core->get_nonce( true );
-      
+
       $response = [
         'success' => true,
         'sessionId' => $sessionId,
         'restNonce' => $restNonce
       ];
-      
+
       // If in test mode and we have a new token, it will be added by create_rest_response
       // But we also want to ensure the restNonce matches the test token if available
       if ( get_option( 'mwai_token_test_mode' ) ) {
@@ -404,7 +460,7 @@ class Meow_MWAI_Rest {
           $response['restNonce'] = $token_data['token'];
         }
       }
-      
+
       return $this->create_rest_response( $response, 200 );
     }
     catch ( Exception $e ) {
@@ -425,10 +481,10 @@ class Meow_MWAI_Rest {
       // Only show AI Engine cron events (those starting with mwai_)
       $cron_events = [];
       $crons = _get_cron_array();
-      
+
       // Get transient data for last run status (we'll store this when crons run)
       $last_run_data = get_transient( 'mwai_cron_last_run' ) ?: [];
-      
+
       // Get all scheduled events and filter for AI Engine ones
       foreach ( $crons as $timestamp => $cron ) {
         foreach ( $cron as $hook => $details ) {
@@ -436,16 +492,16 @@ class Meow_MWAI_Rest {
           if ( strpos( $hook, 'mwai_' ) !== 0 ) {
             continue;
           }
-          
+
           $schedule_key = array_keys( $details )[0];
           $schedule_info = $details[$schedule_key];
-          
+
           // Get schedule display name
           $schedule = $schedule_info['schedule'];
           $schedules = wp_get_schedules();
-          $schedule_display = isset( $schedules[$schedule]['display'] ) ? 
+          $schedule_display = isset( $schedules[$schedule]['display'] ) ?
             $schedules[$schedule]['display'] : $schedule;
-          
+
           $event_info = [
             'hook' => $hook,
             'name' => $this->get_cron_display_name( $hook ),
@@ -453,64 +509,69 @@ class Meow_MWAI_Rest {
             'next_run' => $timestamp,
             'next_run_human' => '',
             'last_run' => isset( $last_run_data[$hook]['time'] ) ? $last_run_data[$hook]['time'] : null,
-            'last_run_human' => isset( $last_run_data[$hook]['time'] ) ? 
-              human_time_diff( $last_run_data[$hook]['time'], time() ) . ' ago' : 
+            'last_run_human' => isset( $last_run_data[$hook]['time'] ) ?
+              human_time_diff( $last_run_data[$hook]['time'], time() ) . ' ago' :
               'Never',
             'last_status' => isset( $last_run_data[$hook]['status'] ) ? $last_run_data[$hook]['status'] : 'unknown',
             'schedule' => $schedule_display,
             'is_running' => false,
             'is_scheduled' => true
           ];
-          
+
           // Calculate next run time properly
           // If we have a last run time and schedule interval, calculate the actual next run
           if ( isset( $last_run_data[$hook]['time'] ) && isset( $schedules[$schedule]['interval'] ) ) {
             $interval = $schedules[$schedule]['interval'];
             $last_run = $last_run_data[$hook]['time'];
             $expected_next_run = $last_run + $interval;
-            
-            // If the scheduled timestamp is in the past but we ran recently, 
+
+            // If the scheduled timestamp is in the past but we ran recently,
             // the next run should be based on the last actual run
-            if ( $timestamp < time() && 
+            if ( $timestamp < time() &&
                  $last_run > ( time() - $interval ) ) {
               // Cron ran recently, calculate next run from last run time
               $event_info['next_run'] = $expected_next_run;
               $event_info['next_run_human'] = 'In ' . human_time_diff( time(), $expected_next_run );
-            } else if ( $timestamp < time() ) {
+            }
+            else if ( $timestamp < time() ) {
               // Genuinely overdue
               $event_info['next_run_human'] = 'Overdue by ' . human_time_diff( time(), $timestamp );
-            } else {
+            }
+            else {
               // Future scheduled time
               $event_info['next_run_human'] = 'In ' . human_time_diff( time(), $timestamp );
             }
-          } else {
+          }
+          else {
             // No last run data, use the scheduled timestamp but be conservative about "overdue"
             if ( $timestamp < time() ) {
               // Only show as overdue if it's significantly past due (more than the schedule interval)
               // to avoid false positives for crons that might be running but not tracked
               $time_past_due = time() - $timestamp;
               $interval = isset( $schedules[$schedule]['interval'] ) ? $schedules[$schedule]['interval'] : 3600; // Default 1 hour
-              
+
               if ( $time_past_due > $interval ) {
                 $event_info['next_run_human'] = 'Overdue by ' . human_time_diff( time(), $timestamp );
-              } else {
+              }
+              else {
                 $event_info['next_run_human'] = 'Due to run';
               }
-            } else {
+            }
+            else {
               $event_info['next_run_human'] = 'In ' . human_time_diff( time(), $timestamp );
             }
           }
-          
+
           // Check if currently running (via transient)
           $running_transient = get_transient( 'mwai_cron_running_' . $hook );
           if ( $running_transient ) {
             $event_info['is_running'] = true;
           }
-          
+
           $cron_events[] = $event_info;
         }
       }
-      
+
       return $this->create_rest_response( [ 'success' => true, 'events' => $cron_events ], 200 );
     }
     catch ( Exception $e ) {
@@ -523,11 +584,11 @@ class Meow_MWAI_Rest {
     try {
       $params = $request->get_json_params();
       $hook = isset( $params['hook'] ) ? $params['hook'] : null;
-      
+
       if ( empty( $hook ) ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => 'No cron hook provided' ], 400 );
       }
-      
+
       // Only allow running AI Engine crons (starting with mwai_)
       if ( strpos( $hook, 'mwai_' ) !== 0 ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => 'Invalid cron hook' ], 400 );
@@ -549,8 +610,8 @@ class Meow_MWAI_Rest {
       // Run the cron action
       do_action( $hook );
 
-      return $this->create_rest_response( [ 
-        'success' => true, 
+      return $this->create_rest_response( [
+        'success' => true,
         'message' => 'Cron executed successfully',
         'hook' => $hook
       ], 200 );
@@ -560,7 +621,7 @@ class Meow_MWAI_Rest {
       return $this->create_rest_response( [ 'success' => false, 'message' => $message ], 500 );
     }
   }
-  
+
   private function get_cron_display_name( $hook ) {
     $names = [
       'mwai_tasks_internal_run' => 'Tasks Runner',
@@ -571,13 +632,13 @@ class Meow_MWAI_Rest {
     ];
     return isset( $names[$hook] ) ? $names[$hook] : $hook;
   }
-  
+
   private function get_cron_description( $hook ) {
     $descriptions = [
       'mwai_tasks_internal_run' => 'Processes background tasks and queued operations.',
       'mwai_tasks_internal_dev_run' => 'Processes tasks in development mode (every 5 seconds).',
       'mwai_cleanup_oauth' => 'Cleans up expired OAuth tokens and sessions.',
-      'mwai_files_cleanup' => 'Removes temporary and orphaned files.',
+      'mwai_files_cleanup' => 'Removes expired files based on expiration dates.',
       'mwai_discussions' => 'Maintains chat discussions database and removes old entries.'
     ];
     return isset( $descriptions[$hook] ) ? $descriptions[$hook] : '';
@@ -629,7 +690,7 @@ class Meow_MWAI_Rest {
     try {
       $params = $request->get_json_params();
       $envId = $params['env_id'];
-      
+
       // Get the environment details
       $env = null;
       $envs = $this->core->get_option( 'ai_envs' );
@@ -639,15 +700,15 @@ class Meow_MWAI_Rest {
           break;
         }
       }
-      
+
       if ( !$env ) {
         throw new Exception( __( 'Environment not found.', 'ai-engine' ) );
       }
-      
+
       // Get the engine and test connection
       $engine = Meow_MWAI_Engines_Factory::get( $this->core, $envId );
       $result = $engine->connection_check();
-      
+
       // Format the response based on provider
       $response = [
         'success' => true,
@@ -655,13 +716,13 @@ class Meow_MWAI_Rest {
         'name' => $env['name'],
         'data' => $result
       ];
-      
+
       return $this->create_rest_response( $response, 200 );
     }
     catch ( Exception $e ) {
       $message = apply_filters( 'mwai_ai_exception', $e->getMessage() );
-      return $this->create_rest_response( [ 
-        'success' => false, 
+      return $this->create_rest_response( [
+        'success' => false,
         'error' => $message,
         'provider' => isset( $env ) ? $env['type'] : 'unknown'
       ], 200 ); // Return 200 even on error for consistent modal display
@@ -948,7 +1009,40 @@ class Meow_MWAI_Rest {
       $description = sanitize_text_field( $params['description'] );
       $url = $params['url'];
       $filename = sanitize_text_field( $params['filename'] );
-      $attachmentId = $this->core->add_image_from_url( $url, $filename, $title, $description, $caption, $alt );
+
+      // Prepare AI metadata
+      $ai_metadata = [];
+      if ( !empty( $params['model'] ) ) {
+        $ai_metadata['model'] = $params['model'];
+      }
+      if ( !empty( $params['latency'] ) ) {
+        $ai_metadata['latency'] = $params['latency'];
+      }
+      if ( !empty( $params['env_id'] ) ) {
+        $ai_metadata['env_id'] = $params['env_id'];
+      }
+
+      // Debug logging
+      if ( $this->core->get_option( 'queries_debug_mode' ) ) {
+        error_log( '[AI Engine] create_image metadata: ' . json_encode( $ai_metadata ) );
+      }
+
+      // Create as mwai_image post type (draft image)
+      $attachmentId = $this->core->add_image_from_url( $url, $filename, $title, $description, $caption, $alt, null, 'inherit', 'mwai_image', $ai_metadata );
+
+      // Add to user's draft media
+      $user_id = get_current_user_id();
+      $draft_media = get_user_meta( $user_id, 'mwai_draft_media', true );
+      if ( !is_array( $draft_media ) ) {
+        $draft_media = [];
+      }
+      $draft_media[] = [
+        'attachment_id' => $attachmentId,
+        'type' => 'image',
+        'created_at' => time()
+      ];
+      update_user_meta( $user_id, 'mwai_draft_media', $draft_media );
+
       return $this->create_rest_response( [ 'success' => true, 'attachmentId' => $attachmentId ], 200 );
     }
     catch ( Exception $e ) {
@@ -961,13 +1055,24 @@ class Meow_MWAI_Rest {
     try {
       global $mwai;
       $params = $request->get_json_params();
-      $url = isset( $params['url'] ) ? esc_url_raw( $params['url'] ) : null;
-      if ( empty( $url ) ) {
-        throw new Exception( __( 'The url is required.', 'ai-engine' ) );
+      $attachment_id = isset( $params['attachmentId'] ) ? intval( $params['attachmentId'] ) : null;
+
+      if ( empty( $attachment_id ) ) {
+        throw new Exception( __( 'The attachment ID is required.', 'ai-engine' ) );
       }
-      $prompt = 'Describe this image and suggest a short title, description and SEO-friendly (ASCII and lowercase) filename. '
-      . 'Return a JSON with the keys title, description, alt, caption, filename.';
-      $result = $mwai->simpleVisionQuery( $prompt, $url, null, [ 'image_remote_upload' => 'url', 'scope' => 'admin-tools' ] );
+
+      // Get the file path from the attachment ID
+      $file_path = get_attached_file( $attachment_id );
+      if ( empty( $file_path ) || !file_exists( $file_path ) ) {
+        throw new Exception( __( 'Could not find the attachment file.', 'ai-engine' ) );
+      }
+
+      $prompt = 'Describe this image and suggest a short title and description. '
+      . 'Also suggest an SEO-friendly filename (lowercase, ASCII characters only, with hyphens instead of spaces). '
+      . 'Return a JSON with the keys: title, description, filename.';
+
+      // Use file path instead of URL to avoid network issues
+      $result = $mwai->simpleVisionQuery( $prompt, null, $file_path, [ 'scope' => 'admin-tools' ] );
       $result = preg_replace( '/^```json\s*/', '', $result );
       $result = preg_replace( '/\s*```$/', '', $result );
       if ( is_string( $result ) ) {
@@ -979,8 +1084,96 @@ class Meow_MWAI_Rest {
       if ( !is_array( $data ) ) {
         $data = [];
       }
-      $data = array_merge( [ 'title' => '', 'description' => '', 'caption' => '', 'alt' => '', 'filename' => '' ], $data );
+      $data = array_merge( [ 'title' => '', 'description' => '', 'filename' => '' ], $data );
       return $this->create_rest_response( [ 'success' => true, 'data' => $data ], 200 );
+    }
+    catch ( Exception $e ) {
+      $message = apply_filters( 'mwai_ai_exception', $e->getMessage() );
+      return $this->create_rest_response( [ 'success' => false, 'message' => $message ], 500 );
+    }
+  }
+
+  public function rest_helpers_update_media_metadata( $request ) {
+    try {
+      $params = $request->get_json_params();
+      $attachment_id = intval( $params['attachmentId'] );
+      $title = sanitize_text_field( $params['title'] ?? '' );
+      $description = sanitize_text_field( $params['description'] ?? '' );
+      $caption = sanitize_text_field( $params['caption'] ?? '' );
+      $alt = sanitize_text_field( $params['alt'] ?? '' );
+      $filename = sanitize_file_name( $params['filename'] ?? '' );
+
+      if ( !$attachment_id ) {
+        throw new Exception( __( 'Attachment ID is required.', 'ai-engine' ) );
+      }
+
+      // Generate slug from filename (without extension)
+      $slug = '';
+      if ( !empty( $filename ) ) {
+        $slug = pathinfo( $filename, PATHINFO_FILENAME );
+      }
+
+      // Update post title, content (description), caption, and slug
+      $update_data = [
+        'ID' => $attachment_id,
+        'post_title' => $title,
+        'post_content' => $description,
+        'post_excerpt' => $caption
+      ];
+
+      if ( !empty( $slug ) ) {
+        $update_data['post_name'] = $slug;
+      }
+
+      wp_update_post( $update_data );
+
+      // Update alt text
+      if ( !empty( $alt ) ) {
+        update_post_meta( $attachment_id, '_wp_attachment_image_alt', $alt );
+      }
+
+      // Update filename if provided
+      $new_url = null;
+      if ( !empty( $filename ) ) {
+        $file_path = get_attached_file( $attachment_id );
+        if ( $file_path ) {
+          // Security: Validate file extension to prevent arbitrary file upload attacks
+          $original_ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
+          $new_ext = strtolower( pathinfo( $filename, PATHINFO_EXTENSION ) );
+
+          // Allowlist of safe media extensions (no executable types)
+          $allowed_extensions = [
+            'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'svg', 'avif',
+            'mp4', 'webm', 'ogg', 'mov', 'avi', 'wmv', 'flv', 'm4v',
+            'mp3', 'wav', 'flac', 'aac', 'm4a', 'wma',
+            'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'rtf'
+          ];
+
+          // Extension must be in allowlist AND match original extension
+          if ( !in_array( $new_ext, $allowed_extensions, true ) ) {
+            throw new Exception( __( 'Invalid file extension. Only media file extensions are allowed.', 'ai-engine' ) );
+          }
+          if ( $new_ext !== $original_ext ) {
+            throw new Exception( __( 'File extension must match the original file type.', 'ai-engine' ) );
+          }
+
+          $path_parts = pathinfo( $file_path );
+          $new_file_path = $path_parts['dirname'] . '/' . $filename;
+          if ( rename( $file_path, $new_file_path ) ) {
+            update_attached_file( $attachment_id, $new_file_path );
+            // Build new URL from file path for custom post types
+            $upload_dir = wp_upload_dir();
+            $new_url = str_replace( $upload_dir['basedir'], $upload_dir['baseurl'], $new_file_path );
+          }
+        }
+      }
+
+      $response = [ 'success' => true ];
+      if ( $new_url ) {
+        $response['url'] = $new_url;
+      }
+
+      return $this->create_rest_response( $response, 200 );
     }
     catch ( Exception $e ) {
       $message = apply_filters( 'mwai_ai_exception', $e->getMessage() );
@@ -1151,16 +1344,23 @@ class Meow_MWAI_Rest {
 
   public function rest_helpers_posts_ids( $request ) {
     try {
+      global $wpdb;
       $params = $request->get_query_params();
       $postType = $params['postType'];
       $postStatus = !empty( $params['postStatus'] ) ? explode( ',', $params['postStatus'] ) : [ 'publish' ];
-      $posts = get_posts( [
-        'posts_per_page' => -1,
-        'post_type' => $postType,
-        'post_status' => $postStatus,
-        'fields' => 'ids'
-      ] );
-      return $this->create_rest_response( [ 'success' => true, 'postIds' => $posts ], 200 );
+
+      // Use direct SQL query instead of get_posts to avoid memory issues with large sites
+      $statusPlaceholders = implode( ',', array_fill( 0, count( $postStatus ), '%s' ) );
+      $query = "SELECT ID FROM {$wpdb->posts}
+                WHERE post_type = %s
+                AND post_status IN ($statusPlaceholders)
+                ORDER BY ID ASC";
+
+      $prepareArgs = array_merge( [ $postType ], $postStatus );
+      $postIds = $wpdb->get_col( $wpdb->prepare( $query, ...$prepareArgs ) );
+      $postIds = array_map( 'intval', $postIds );
+
+      return $this->create_rest_response( [ 'success' => true, 'postIds' => $postIds ], 200 );
     }
     catch ( Exception $e ) {
       $message = apply_filters( 'mwai_ai_exception', $e->getMessage() );
@@ -1200,6 +1400,50 @@ class Meow_MWAI_Rest {
       return $this->create_rest_response( [ 'success' => true, 'content' => $cleanPost['content'],
         'checksum' => $cleanPost['checksum'], 'language' => $cleanPost['language'], 'excerpt' => $cleanPost['excerpt'],
         'postId' => $cleanPost['postId'], 'title' => $cleanPost['title'], 'url' => $cleanPost['url'] ], 200 );
+    }
+    catch ( Exception $e ) {
+      $message = apply_filters( 'mwai_ai_exception', $e->getMessage() );
+      return $this->create_rest_response( [ 'success' => false, 'message' => $message ], 500 );
+    }
+  }
+
+  // Batch check which posts have content (for Push All optimization)
+  public function rest_helpers_check_posts_content( $request ) {
+    try {
+      $params = $request->get_json_params();
+      $postIds = isset( $params['postIds'] ) ? $params['postIds'] : [];
+
+      if ( empty( $postIds ) || !is_array( $postIds ) ) {
+        return $this->create_rest_response( [
+          'success' => false,
+          'message' => 'postIds array is required'
+        ], 400 );
+      }
+
+      // Sanitize post IDs
+      $postIds = array_map( 'intval', $postIds );
+
+      // Check content using the mwai_pre_post_content filter to support page builders,
+      // ACF, and other plugins that store content outside of post_content
+      $postsWithContent = [];
+
+      foreach ( $postIds as $postId ) {
+        $post = get_post( $postId );
+        if ( !$post ) {
+          continue;
+        }
+        // Apply the same filter used by get_post_content() in core.php
+        $content = apply_filters( 'mwai_pre_post_content', $post->post_content, $postId );
+        $content = trim( strip_tags( $content ) );
+        if ( !empty( $content ) ) {
+          $postsWithContent[] = $postId;
+        }
+      }
+
+      return $this->create_rest_response( [
+        'success' => true,
+        'postsWithContent' => $postsWithContent
+      ], 200 );
     }
     catch ( Exception $e ) {
       $message = apply_filters( 'mwai_ai_exception', $e->getMessage() );
@@ -1250,7 +1494,7 @@ class Meow_MWAI_Rest {
     try {
       global $wpdb;
       $results = [];
-      
+
       // Add indexes to optimize query performance
       $indexes = [
         // mwai_logs indexes
@@ -1259,59 +1503,61 @@ class Meow_MWAI_Rest {
         [ 'table' => 'mwai_logs', 'name' => 'idx_mwai_logs_envId', 'columns' => 'envId' ],
         [ 'table' => 'mwai_logs', 'name' => 'idx_mwai_logs_refId', 'columns' => 'refId' ],
         [ 'table' => 'mwai_logs', 'name' => 'idx_mwai_logs_time_model', 'columns' => 'time, model' ],
-        
+
         // mwai_logmeta indexes
         [ 'table' => 'mwai_logmeta', 'name' => 'idx_mwai_logmeta_log_id', 'columns' => 'log_id' ],
-        
+
         // mwai_vectors indexes
         [ 'table' => 'mwai_vectors', 'name' => 'idx_mwai_vectors_envId_status_dbId', 'columns' => 'envId, status, dbId' ],
         [ 'table' => 'mwai_vectors', 'name' => 'idx_mwai_vectors_refId', 'columns' => 'refId' ],
         [ 'table' => 'mwai_vectors', 'name' => 'idx_mwai_vectors_status', 'columns' => 'status' ],
         [ 'table' => 'mwai_vectors', 'name' => 'idx_mwai_vectors_updated', 'columns' => 'updated' ],
-        
+
         // mwai_files indexes
         [ 'table' => 'mwai_files', 'name' => 'idx_mwai_files_expires', 'columns' => 'expires' ],
         [ 'table' => 'mwai_files', 'name' => 'idx_mwai_files_userId', 'columns' => 'userId' ],
         [ 'table' => 'mwai_files', 'name' => 'idx_mwai_files_purpose', 'columns' => 'purpose' ],
-        
+
         // mwai_filemeta indexes
         [ 'table' => 'mwai_filemeta', 'name' => 'idx_mwai_filemeta_file_id', 'columns' => 'file_id' ],
-        
+
         // mwai_chats indexes
         [ 'table' => 'mwai_chats', 'name' => 'idx_mwai_chats_chatId_botId', 'columns' => 'chatId, botId' ],
         [ 'table' => 'mwai_chats', 'name' => 'idx_mwai_chats_chatId_userId', 'columns' => 'chatId, userId' ],
         [ 'table' => 'mwai_chats', 'name' => 'idx_mwai_chats_updated', 'columns' => 'updated' ],
       ];
-      
+
       // Add indexes
       foreach ( $indexes as $index ) {
         $table = $wpdb->prefix . $index['table'];
         $index_name = $index['name'];
         $columns = $index['columns'];
-        
+
         // Check if index already exists
         $existing = $wpdb->get_var( $wpdb->prepare(
-          "SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
-           WHERE table_schema = %s AND table_name = %s AND index_name = %s",
-          DB_NAME, $table, $index_name
+          'SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
+           WHERE table_schema = %s AND table_name = %s AND index_name = %s',
+          DB_NAME,
+          $table,
+          $index_name
         ) );
-        
+
         if ( !$existing ) {
           $wpdb->query( "ALTER TABLE `$table` ADD INDEX `$index_name` ($columns)" );
           $results[] = "Added index $index_name on $table";
         }
       }
-      
+
       // Clean up old logs (older than 3 months)
       $three_months_ago = date( 'Y-m-d H:i:s', strtotime( '-3 months' ) );
-      
+
       // Delete old logs
       $deleted_logs = $wpdb->query( $wpdb->prepare(
         "DELETE FROM {$wpdb->prefix}mwai_logs WHERE time < %s",
         $three_months_ago
       ) );
       $results[] = "Deleted $deleted_logs old log entries";
-      
+
       // Delete orphaned logmeta
       $deleted_logmeta = $wpdb->query(
         "DELETE lm FROM {$wpdb->prefix}mwai_logmeta lm
@@ -1319,21 +1565,21 @@ class Meow_MWAI_Rest {
          WHERE l.id IS NULL"
       );
       $results[] = "Deleted $deleted_logmeta orphaned logmeta entries";
-      
+
       // Delete old chats (older than 3 months)
       $deleted_chats = $wpdb->query( $wpdb->prepare(
         "DELETE FROM {$wpdb->prefix}mwai_chats WHERE updated < %s",
         $three_months_ago
       ) );
       $results[] = "Deleted $deleted_chats old chat discussions";
-      
+
       // Optimize tables
       $tables = [ 'mwai_logs', 'mwai_logmeta', 'mwai_vectors', 'mwai_files', 'mwai_filemeta', 'mwai_chats' ];
       foreach ( $tables as $table ) {
         $wpdb->query( "OPTIMIZE TABLE {$wpdb->prefix}$table" );
       }
-      $results[] = "Optimized all AI Engine tables";
-      
+      $results[] = 'Optimized all AI Engine tables';
+
       $message = implode( "\n", $results );
       return $this->create_rest_response( [ 'success' => true, 'message' => $message ], 200 );
     }
@@ -1452,13 +1698,14 @@ class Meow_MWAI_Rest {
       $params = $request->get_json_params();
       $days = isset( $params['days'] ) ? intval( $params['days'] ) : 31;
       $byModel = isset( $params['byModel'] ) ? (bool) $params['byModel'] : false;
-      
+
       if ( $byModel ) {
         $data = apply_filters( 'mwai_stats_logs_activity_daily_by_model', [], $days );
-      } else {
+      }
+      else {
         $data = apply_filters( 'mwai_stats_logs_activity_daily', [], $days );
       }
-      
+
       return $this->create_rest_response( [ 'success' => true, 'data' => $data ], 200 );
     }
     catch ( Exception $e ) {
@@ -1492,7 +1739,7 @@ class Meow_MWAI_Rest {
       $url = !empty( $params['url'] ) ? $params['url'] : null;
       $mediaId = isset( $params['mediaId'] ) ? intval( $params['mediaId'] ) : 0;
       $path = !empty( $params['path'] ) ? $params['path'] : null;
-      
+
       // If mediaId is provided, get the file path
       if ( !$path && $mediaId > 0 ) {
         $path = get_attached_file( $mediaId );
@@ -1500,12 +1747,12 @@ class Meow_MWAI_Rest {
           throw new Exception( __( 'The media file cannot be found.', 'ai-engine' ) );
         }
       }
-      
+
       // Set the scope for admin tools
       if ( !isset( $params['scope'] ) ) {
         $params['scope'] = 'admin-tools';
       }
-      
+
       $result = $mwai->simpleTranscribeAudio( $url, $path, $params );
       return $this->create_rest_response( [ 'success' => true, 'data' => $result ], 200 );
     }
@@ -1643,16 +1890,16 @@ class Meow_MWAI_Rest {
         'orderby' => 'date',
         'order' => 'DESC'
       ];
-      
+
       $posts = get_posts( $args );
-      $forms = array_map( function( $post ) {
+      $forms = array_map( function ( $post ) {
         return [
           'id' => $post->ID,
           'title' => $post->post_title,
           'status' => $post->post_status
         ];
       }, $posts );
-      
+
       return $this->create_rest_response( [ 'success' => true, 'forms' => $forms ], 200 );
     }
     catch ( Exception $e ) {
@@ -1666,17 +1913,17 @@ class Meow_MWAI_Rest {
       if ( !$id ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => 'Invalid form ID' ], 400 );
       }
-      
+
       $post = get_post( $id );
       if ( !$post || $post->post_type !== 'mwai_form' ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => 'Form not found' ], 404 );
       }
-      
+
       $form = [
         'id' => $post->ID,
-        'title' => [ 
+        'title' => [
           'raw' => $post->post_title,
-          'rendered' => $post->post_title 
+          'rendered' => $post->post_title
         ],
         'content' => [
           'raw' => $post->post_content,
@@ -1684,7 +1931,7 @@ class Meow_MWAI_Rest {
         ],
         'status' => $post->post_status
       ];
-      
+
       return $this->create_rest_response( [ 'success' => true, 'form' => $form ], 200 );
     }
     catch ( Exception $e ) {
@@ -1696,30 +1943,30 @@ class Meow_MWAI_Rest {
     try {
       $params = $request->get_json_params();
       $title = isset( $params['title'] ) ? $params['title'] : 'Untitled Form';
-      
+
       $post_data = [
         'post_title' => $title,
         'post_content' => '',
         'post_status' => 'draft',
         'post_type' => 'mwai_form'
       ];
-      
+
       $post_id = wp_insert_post( $post_data );
-      
+
       if ( is_wp_error( $post_id ) ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => $post_id->get_error_message() ], 500 );
       }
-      
+
       $post = get_post( $post_id );
       $form = [
         'id' => $post->ID,
-        'title' => [ 
+        'title' => [
           'raw' => $post->post_title,
-          'rendered' => $post->post_title 
+          'rendered' => $post->post_title
         ],
         'status' => $post->post_status
       ];
-      
+
       return $this->create_rest_response( [ 'success' => true, 'form' => $form ], 200 );
     }
     catch ( Exception $e ) {
@@ -1731,42 +1978,42 @@ class Meow_MWAI_Rest {
     try {
       $params = $request->get_json_params();
       $id = isset( $params['id'] ) ? intval( $params['id'] ) : 0;
-      
+
       if ( !$id ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => 'Invalid form ID' ], 400 );
       }
-      
+
       $post = get_post( $id );
       if ( !$post || $post->post_type !== 'mwai_form' ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => 'Form not found' ], 404 );
       }
-      
+
       $post_data = [ 'ID' => $id ];
-      
+
       if ( isset( $params['title'] ) ) {
         $post_data['post_title'] = $params['title'];
       }
-      
+
       if ( isset( $params['content'] ) ) {
         $post_data['post_content'] = $params['content'];
       }
-      
+
       if ( isset( $params['status'] ) ) {
         $post_data['post_status'] = $params['status'];
       }
-      
+
       $result = wp_update_post( $post_data );
-      
+
       if ( is_wp_error( $result ) ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => $result->get_error_message() ], 500 );
       }
-      
+
       $post = get_post( $id );
       $form = [
         'id' => $post->ID,
-        'title' => [ 
+        'title' => [
           'raw' => $post->post_title,
-          'rendered' => $post->post_title 
+          'rendered' => $post->post_title
         ],
         'content' => [
           'raw' => $post->post_content,
@@ -1774,7 +2021,7 @@ class Meow_MWAI_Rest {
         ],
         'status' => $post->post_status
       ];
-      
+
       return $this->create_rest_response( [ 'success' => true, 'form' => $form ], 200 );
     }
     catch ( Exception $e ) {
@@ -1786,22 +2033,644 @@ class Meow_MWAI_Rest {
     try {
       $params = $request->get_json_params();
       $id = isset( $params['id'] ) ? intval( $params['id'] ) : 0;
-      
+
       if ( !$id ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => 'Invalid form ID' ], 400 );
       }
-      
+
       $post = get_post( $id );
       if ( !$post || $post->post_type !== 'mwai_form' ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => 'Form not found' ], 404 );
       }
-      
+
       $result = wp_delete_post( $id, true );
-      
+
       if ( !$result ) {
         return $this->create_rest_response( [ 'success' => false, 'message' => 'Failed to delete form' ], 500 );
       }
-      
+
+      return $this->create_rest_response( [ 'success' => true ], 200 );
+    }
+    catch ( Exception $e ) {
+      return $this->create_rest_response( [ 'success' => false, 'message' => $e->getMessage() ], 500 );
+    }
+  }
+
+  #endregion
+
+  #region Video Generation Helpers
+
+  public function rest_helpers_create_video( $request ) {
+    try {
+      $params = $request->get_json_params();
+      $prompt = sanitize_text_field( $params['prompt'] );
+      $model = sanitize_text_field( $params['model'] ?? 'sora-2' );
+      $size = sanitize_text_field( $params['size'] ?? '720x1280' );
+      $seconds = absint( $params['seconds'] ?? 4 );
+      $envId = sanitize_text_field( $params['envId'] ?? '' );
+
+      // Check if envId is provided (defaults not supported for videos yet)
+      if ( empty( $envId ) ) {
+        throw new Exception( 'Please select a specific environment and model in the Video Generator. Default environments are not yet supported for video generation.' );
+      }
+
+      // Get API key from environment
+      $env = $this->core->get_ai_env( $envId );
+      $api_key = $env['apikey'] ?? '';
+
+      if ( empty( $api_key ) ) {
+        throw new Exception( 'OpenAI API key not found.' );
+      }
+
+      // Prepare multipart boundary
+      $boundary = wp_generate_password( 24, false );
+      $body = '';
+
+      // Add model
+      $body .= "--{$boundary}\r\n";
+      $body .= "Content-Disposition: form-data; name=\"model\"\r\n\r\n";
+      $body .= "{$model}\r\n";
+
+      // Add prompt
+      $body .= "--{$boundary}\r\n";
+      $body .= "Content-Disposition: form-data; name=\"prompt\"\r\n\r\n";
+      $body .= "{$prompt}\r\n";
+
+      // Add size
+      $body .= "--{$boundary}\r\n";
+      $body .= "Content-Disposition: form-data; name=\"size\"\r\n\r\n";
+      $body .= "{$size}\r\n";
+
+      // Add seconds
+      $body .= "--{$boundary}\r\n";
+      $body .= "Content-Disposition: form-data; name=\"seconds\"\r\n\r\n";
+      $body .= "{$seconds}\r\n";
+
+      $body .= "--{$boundary}--\r\n";
+
+      // Call OpenAI API to create video
+      $response = wp_remote_post( 'https://api.openai.com/v1/videos', [
+        'headers' => [
+          'Authorization' => 'Bearer ' . $api_key,
+          'Content-Type' => 'multipart/form-data; boundary=' . $boundary
+        ],
+        'body' => $body,
+        'timeout' => 30
+      ] );
+
+      if ( is_wp_error( $response ) ) {
+        throw new Exception( $response->get_error_message() );
+      }
+
+      $response_body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+      if ( isset( $response_body['error'] ) ) {
+        throw new Exception( $response_body['error']['message'] ?? 'Unknown error' );
+      }
+
+      // Record usage (price is calculated per second)
+      $usage = $this->core->record_videos_usage( $model, $size, $seconds );
+
+      // Log to Query Logs (Statistics)
+      try {
+        if ( class_exists( 'MeowPro_MWAI_Stats' ) && class_exists( 'MeowPro_MWAI_Statistics' ) ) {
+          $statsObject = new MeowPro_MWAI_Stats();
+          $statsObject->session = $params['session'] ?? null;
+          $statsObject->scope = 'admin-tools';
+          $statsObject->feature = 'video-generator';
+          $statsObject->model = $model;
+          $statsObject->envId = $envId;
+          $statsObject->units = $seconds;
+          $statsObject->type = 'seconds';
+          $statsObject->price = $usage['price'] ?? 0;
+          $statsObject->accuracy = $usage['accuracy'] ?? 'full';
+
+          $statistics = new MeowPro_MWAI_Statistics();
+          $statistics->commit_stats( $statsObject );
+        }
+      }
+      catch ( Exception $statsError ) {
+        // Log the error but don't fail the video creation
+        error_log( '[AI Engine Video] Failed to log statistics: ' . $statsError->getMessage() );
+      }
+
+      // Store metadata for later retrieval when video completes
+      if ( isset( $response_body['id'] ) ) {
+        set_transient( 'mwai_video_metadata_' . $response_body['id'], [
+          'model' => $model,
+          'env_id' => $envId,
+          'created_at' => time()
+        ], 7 * DAY_IN_SECONDS );
+      }
+
+      return $this->create_rest_response( [ 'success' => true, 'video' => $response_body, 'usage' => $usage ], 200 );
+    }
+    catch ( Exception $e ) {
+      return $this->create_rest_response( [ 'success' => false, 'message' => $e->getMessage() ], 500 );
+    }
+  }
+
+  public function rest_helpers_video_status( $request ) {
+    try {
+      $params = $request->get_json_params();
+      $video_ids = $params['videoIds'] ?? [];
+      $envId = sanitize_text_field( $params['envId'] ?? '' );
+
+      if ( empty( $video_ids ) ) {
+        return $this->create_rest_response( [ 'success' => true, 'videos' => [] ], 200 );
+      }
+
+      // Get API key from environment
+      $env = $this->core->get_ai_env( $envId );
+      $api_key = $env['apikey'] ?? '';
+
+      if ( empty( $api_key ) ) {
+        throw new Exception( 'OpenAI API key not found.' );
+      }
+
+      $videos = [];
+      foreach ( $video_ids as $video_id ) {
+        $response = wp_remote_get( 'https://api.openai.com/v1/videos/' . $video_id, [
+          'headers' => [
+            'Authorization' => 'Bearer ' . $api_key
+          ],
+          'timeout' => 15
+        ] );
+
+        if ( !is_wp_error( $response ) ) {
+          $body = json_decode( wp_remote_retrieve_body( $response ), true );
+          if ( !isset( $body['error'] ) ) {
+            // If video is completed and we haven't saved it yet, download and save to media library
+            if ( $body['status'] === 'completed' && empty( get_transient( 'mwai_video_saved_' . $video_id ) ) ) {
+              // Retrieve metadata that was stored when video was created
+              $metadata = get_transient( 'mwai_video_metadata_' . $video_id );
+              $ai_metadata = [];
+              if ( $metadata ) {
+                $ai_metadata = [
+                  'model' => $metadata['model'] ?? null,
+                  'env_id' => $metadata['env_id'] ?? null,
+                  'latency' => isset( $metadata['created_at'] ) ? ( time() - $metadata['created_at'] ) : null
+                ];
+              }
+
+              $attachment_id = $this->download_and_save_video( $video_id, $api_key, '', '', $ai_metadata );
+              if ( $attachment_id ) {
+                $body['attachment_id'] = $attachment_id;
+                // Build URL from file path for custom post types
+                $file_path = get_attached_file( $attachment_id );
+                $upload_dir = wp_upload_dir();
+                $body['url'] = str_replace( $upload_dir['basedir'], $upload_dir['baseurl'], $file_path );
+                // Mark as saved so we don't download again
+                set_transient( 'mwai_video_saved_' . $video_id, $attachment_id, DAY_IN_SECONDS );
+                // Clean up metadata transient
+                delete_transient( 'mwai_video_metadata_' . $video_id );
+              }
+            }
+            // Check if we already have this video saved
+            else if ( $body['status'] === 'completed' ) {
+              $attachment_id = get_transient( 'mwai_video_saved_' . $video_id );
+              if ( $attachment_id ) {
+                $body['attachment_id'] = $attachment_id;
+                // Build URL from file path for custom post types
+                $file_path = get_attached_file( $attachment_id );
+                $upload_dir = wp_upload_dir();
+                $body['url'] = str_replace( $upload_dir['basedir'], $upload_dir['baseurl'], $file_path );
+              }
+            }
+            $videos[] = $body;
+          }
+          else {
+            // Include error information in the response
+            error_log( 'AI Engine: Video generation failed for ID ' . $video_id . ': ' . json_encode( $body['error'] ) );
+            $videos[] = [
+              'id' => $video_id,
+              'status' => 'failed',
+              'error' => $body['error']
+            ];
+          }
+        }
+        else {
+          // WP HTTP error
+          error_log( 'AI Engine: Failed to check video status for ID ' . $video_id . ': ' . $response->get_error_message() );
+          $videos[] = [
+            'id' => $video_id,
+            'status' => 'failed',
+            'error' => [ 'message' => $response->get_error_message() ]
+          ];
+        }
+      }
+
+      return $this->create_rest_response( [ 'success' => true, 'videos' => $videos ], 200 );
+    }
+    catch ( Exception $e ) {
+      return $this->create_rest_response( [ 'success' => false, 'message' => $e->getMessage() ], 500 );
+    }
+  }
+
+  public function rest_helpers_download_video( $request ) {
+    try {
+      $params = $request->get_json_params();
+      $video_id = sanitize_text_field( $params['videoId'] );
+      $envId = sanitize_text_field( $params['envId'] ?? '' );
+
+      // Get API key from environment
+      $env = $this->core->get_ai_env( $envId );
+      $api_key = $env['apikey'] ?? '';
+
+      if ( empty( $api_key ) ) {
+        throw new Exception( 'OpenAI API key not found.' );
+      }
+
+      $temp_file = wp_tempnam( $video_id . '.mp4' );
+
+      $response = wp_remote_get( 'https://api.openai.com/v1/videos/' . $video_id . '/content', [
+        'headers' => [
+          'Authorization' => 'Bearer ' . $api_key
+        ],
+        'timeout' => 120,
+        'stream' => true,
+        'filename' => $temp_file
+      ] );
+
+      if ( is_wp_error( $response ) ) {
+        throw new Exception( $response->get_error_message() );
+      }
+
+      $file_data = file_get_contents( $temp_file );
+      $base64 = base64_encode( $file_data );
+
+      unlink( $temp_file );
+
+      return $this->create_rest_response( [
+        'success' => true,
+        'data' => $base64,
+        'mimeType' => 'video/mp4'
+      ], 200 );
+    }
+    catch ( Exception $e ) {
+      return $this->create_rest_response( [ 'success' => false, 'message' => $e->getMessage() ], 500 );
+    }
+  }
+
+  public function rest_helpers_delete_video( $request ) {
+    try {
+      $params = $request->get_json_params();
+      $video_id = sanitize_text_field( $params['videoId'] );
+      $envId = sanitize_text_field( $params['envId'] ?? '' );
+
+      // Get API key from environment
+      $env = $this->core->get_ai_env( $envId );
+      $api_key = $env['apikey'] ?? '';
+
+      if ( empty( $api_key ) ) {
+        throw new Exception( 'OpenAI API key not found.' );
+      }
+
+      $response = wp_remote_request( 'https://api.openai.com/v1/videos/' . $video_id, [
+        'method' => 'DELETE',
+        'headers' => [
+          'Authorization' => 'Bearer ' . $api_key
+        ],
+        'timeout' => 15
+      ] );
+
+      if ( is_wp_error( $response ) ) {
+        throw new Exception( $response->get_error_message() );
+      }
+
+      return $this->create_rest_response( [ 'success' => true ], 200 );
+    }
+    catch ( Exception $e ) {
+      return $this->create_rest_response( [ 'success' => false, 'message' => $e->getMessage() ], 500 );
+    }
+  }
+
+  private function download_and_save_video( $video_id, $api_key, $title = '', $description = '', $ai_metadata = [] ) {
+    try {
+      // Download video content
+      $response = wp_remote_get( 'https://api.openai.com/v1/videos/' . $video_id . '/content', [
+        'headers' => [
+          'Authorization' => 'Bearer ' . $api_key
+        ],
+        'timeout' => 120
+      ] );
+
+      if ( is_wp_error( $response ) ) {
+        error_log( 'Error downloading video: ' . $response->get_error_message() );
+        return false;
+      }
+
+      $video_data = wp_remote_retrieve_body( $response );
+      if ( empty( $video_data ) ) {
+        error_log( 'Empty video data received' );
+        return false;
+      }
+
+      // Generate filename
+      $filename = $video_id . '.mp4';
+      $upload_dir = wp_upload_dir();
+      $file_path = $upload_dir['path'] . '/' . $filename;
+
+      // Save to file
+      file_put_contents( $file_path, $video_data );
+
+      // Prepare attachment data - use mwai_video post type (draft video)
+      $attachment = [
+        'post_mime_type' => 'video/mp4',
+        'post_title' => !empty( $title ) ? $title : 'AI Generated Video',
+        'post_content' => $description,
+        'post_status' => 'inherit',
+        'post_type' => 'mwai_video'
+      ];
+
+      // Use wp_insert_post instead of wp_insert_attachment to allow custom post types
+      $attachment_id = wp_insert_post( $attachment );
+
+      // Set the attached file manually since we're not using wp_insert_attachment
+      update_attached_file( $attachment_id, $file_path );
+
+      if ( is_wp_error( $attachment_id ) ) {
+        error_log( 'Error creating attachment: ' . $attachment_id->get_error_message() );
+        return false;
+      }
+
+      // Generate attachment metadata
+      require_once ABSPATH . 'wp-admin/includes/image.php';
+      $attach_data = wp_generate_attachment_metadata( $attachment_id, $file_path );
+      wp_update_attachment_metadata( $attachment_id, $attach_data );
+
+      // Store AI-related metadata
+      if ( !empty( $ai_metadata['model'] ) ) {
+        update_post_meta( $attachment_id, 'mwai_model', sanitize_text_field( $ai_metadata['model'] ) );
+      }
+      if ( !empty( $ai_metadata['latency'] ) ) {
+        update_post_meta( $attachment_id, 'mwai_latency', floatval( $ai_metadata['latency'] ) );
+      }
+      if ( !empty( $ai_metadata['env_id'] ) ) {
+        update_post_meta( $attachment_id, 'mwai_env_id', sanitize_text_field( $ai_metadata['env_id'] ) );
+      }
+
+      // Add to user's draft media
+      $user_id = get_current_user_id();
+      $draft_media = get_user_meta( $user_id, 'mwai_draft_media', true );
+      if ( !is_array( $draft_media ) ) {
+        $draft_media = [];
+      }
+      $draft_media[] = [
+        'attachment_id' => $attachment_id,
+        'type' => 'video',
+        'openai_id' => $video_id,
+        'created_at' => time()
+      ];
+      update_user_meta( $user_id, 'mwai_draft_media', $draft_media );
+
+      return $attachment_id;
+    }
+    catch ( Exception $e ) {
+      error_log( 'Exception in download_and_save_video: ' . $e->getMessage() );
+      return false;
+    }
+  }
+
+  public function rest_helpers_save_video_to_library( $request ) {
+    try {
+      $params = $request->get_json_params();
+      $video_id = sanitize_text_field( $params['videoId'] );
+      $title = sanitize_text_field( $params['title'] );
+      $description = sanitize_text_field( $params['description'] );
+      $filename = sanitize_file_name( $params['filename'] );
+      $envId = sanitize_text_field( $params['envId'] ?? '' );
+
+      // Ensure filename has .mp4 extension
+      if ( !preg_match( '/\.mp4$/i', $filename ) ) {
+        $filename .= '.mp4';
+      }
+
+      // Get API key from environment
+      $env = $this->core->get_ai_env( $envId );
+      $api_key = $env['apikey'] ?? '';
+
+      if ( empty( $api_key ) ) {
+        throw new Exception( 'OpenAI API key not found.' );
+      }
+
+      // Download video content
+      $response = wp_remote_get( 'https://api.openai.com/v1/videos/' . $video_id . '/content', [
+        'headers' => [
+          'Authorization' => 'Bearer ' . $api_key
+        ],
+        'timeout' => 120
+      ] );
+
+      if ( is_wp_error( $response ) ) {
+        throw new Exception( $response->get_error_message() );
+      }
+
+      $video_data = wp_remote_retrieve_body( $response );
+
+      // Upload to WordPress media library
+      $upload_dir = wp_upload_dir();
+      $file_path = $upload_dir['path'] . '/' . $filename;
+
+      file_put_contents( $file_path, $video_data );
+
+      $attachment = [
+        'post_mime_type' => 'video/mp4',
+        'post_title' => $title,
+        'post_content' => $description,
+        'post_status' => 'inherit'
+      ];
+
+      $attach_id = wp_insert_attachment( $attachment, $file_path );
+
+      require_once( ABSPATH . 'wp-admin/includes/image.php' );
+      $attach_data = wp_generate_attachment_metadata( $attach_id, $file_path );
+      wp_update_attachment_metadata( $attach_id, $attach_data );
+
+      return $this->create_rest_response( [
+        'success' => true,
+        'attachmentId' => $attach_id
+      ], 200 );
+    }
+    catch ( Exception $e ) {
+      return $this->create_rest_response( [ 'success' => false, 'message' => $e->getMessage() ], 500 );
+    }
+  }
+
+  public function rest_helpers_delete_video_from_library( $request ) {
+    try {
+      $params = $request->get_json_params();
+      $attachment_id = absint( $params['attachmentId'] );
+
+      if ( empty( $attachment_id ) ) {
+        throw new Exception( 'Attachment ID is required.' );
+      }
+
+      $deleted = wp_delete_attachment( $attachment_id, true );
+
+      if ( !$deleted ) {
+        throw new Exception( 'Failed to delete attachment.' );
+      }
+
+      return $this->create_rest_response( [ 'success' => true ], 200 );
+    }
+    catch ( Exception $e ) {
+      return $this->create_rest_response( [ 'success' => false, 'message' => $e->getMessage() ], 500 );
+    }
+  }
+
+  public function rest_helpers_list_draft_media( $request ) {
+    try {
+      $type = $request->get_param( 'type' ); // 'image', 'video', or null for all
+      $user_id = get_current_user_id();
+      $draft_media = get_user_meta( $user_id, 'mwai_draft_media', true );
+
+      if ( !is_array( $draft_media ) ) {
+        return $this->create_rest_response( [ 'success' => true, 'media' => [] ], 200 );
+      }
+
+      $media_items = [];
+      foreach ( $draft_media as $item ) {
+        // Filter by type if specified
+        if ( $type && $item['type'] !== $type ) {
+          continue;
+        }
+
+        $attachment_id = $item['attachment_id'];
+        $attachment = get_post( $attachment_id );
+
+        if ( $attachment ) {
+          // For custom post types (mwai_image, mwai_video), build URL from file path
+          $file_path = get_attached_file( $attachment_id );
+          $upload_dir = wp_upload_dir();
+          $url = str_replace( $upload_dir['basedir'], $upload_dir['baseurl'], $file_path );
+
+          $model = get_post_meta( $attachment_id, 'mwai_model', true );
+          $generation_time = get_post_meta( $attachment_id, 'mwai_latency', true );
+          $env_id = get_post_meta( $attachment_id, 'mwai_env_id', true );
+
+          // Debug logging
+          if ( $this->core->get_option( 'queries_debug_mode' ) ) {
+            error_log( '[AI Engine] list_draft_media - attachment_id: ' . $attachment_id . ' model: ' . var_export( $model, true ) . ' generation_time: ' . var_export( $generation_time, true ) . ' env_id: ' . var_export( $env_id, true ) );
+          }
+
+          $media_items[] = [
+            'attachment_id' => $attachment_id,
+            'type' => $item['type'],
+            'openai_id' => $item['openai_id'] ?? null,
+            'url' => $url,
+            'title' => $attachment->post_title,
+            'description' => $attachment->post_content,
+            'filename' => basename( $file_path ),
+            'created_at' => $item['created_at'],
+            'model' => $model,
+            'generation_time' => $generation_time,
+            'env_id' => $env_id
+          ];
+        }
+      }
+
+      return $this->create_rest_response( [ 'success' => true, 'media' => $media_items ], 200 );
+    }
+    catch ( Exception $e ) {
+      return $this->create_rest_response( [ 'success' => false, 'message' => $e->getMessage() ], 500 );
+    }
+  }
+
+  public function rest_helpers_approve_media( $request ) {
+    try {
+      $params = $request->get_json_params();
+      $attachment_id = absint( $params['attachmentId'] );
+      $openai_id = sanitize_text_field( $params['openaiId'] ?? '' );
+      $envId = sanitize_text_field( $params['envId'] ?? '' );
+
+      if ( empty( $attachment_id ) ) {
+        throw new Exception( 'Attachment ID is required.' );
+      }
+
+      // Convert from mwai_image/mwai_video to attachment post type
+      wp_update_post( [
+        'ID' => $attachment_id,
+        'post_type' => 'attachment',
+        'post_status' => 'inherit'
+      ] );
+
+      // Remove from draft media list
+      $user_id = get_current_user_id();
+      $draft_media = get_user_meta( $user_id, 'mwai_draft_media', true );
+      if ( is_array( $draft_media ) ) {
+        $draft_media = array_filter( $draft_media, function ( $item ) use ( $attachment_id ) {
+          return $item['attachment_id'] !== $attachment_id;
+        } );
+        update_user_meta( $user_id, 'mwai_draft_media', array_values( $draft_media ) );
+      }
+
+      // Delete video from OpenAI if applicable
+      if ( !empty( $openai_id ) ) {
+        $env = $this->core->get_ai_env( $envId );
+        $api_key = $env['apikey'] ?? '';
+
+        if ( !empty( $api_key ) ) {
+          wp_remote_request( 'https://api.openai.com/v1/videos/' . $openai_id, [
+            'method' => 'DELETE',
+            'headers' => [ 'Authorization' => 'Bearer ' . $api_key ],
+            'timeout' => 15
+          ] );
+        }
+      }
+
+      return $this->create_rest_response( [ 'success' => true ], 200 );
+    }
+    catch ( Exception $e ) {
+      return $this->create_rest_response( [ 'success' => false, 'message' => $e->getMessage() ], 500 );
+    }
+  }
+
+  public function rest_helpers_reject_media( $request ) {
+    try {
+      $params = $request->get_json_params();
+      $attachment_id = absint( $params['attachmentId'] );
+      $openai_id = sanitize_text_field( $params['openaiId'] ?? '' );
+      $envId = sanitize_text_field( $params['envId'] ?? '' );
+
+      if ( empty( $attachment_id ) ) {
+        throw new Exception( 'Attachment ID is required.' );
+      }
+
+      // Convert from mwai_image/mwai_video to attachment post type first
+      // This ensures wp_delete_attachment properly deletes the physical file
+      wp_update_post( [
+        'ID' => $attachment_id,
+        'post_type' => 'attachment'
+      ] );
+
+      // Delete attachment from WordPress (now that it's a proper attachment, files will be deleted)
+      wp_delete_attachment( $attachment_id, true );
+
+      // Remove from draft media list
+      $user_id = get_current_user_id();
+      $draft_media = get_user_meta( $user_id, 'mwai_draft_media', true );
+      if ( is_array( $draft_media ) ) {
+        $draft_media = array_filter( $draft_media, function ( $item ) use ( $attachment_id ) {
+          return $item['attachment_id'] !== $attachment_id;
+        } );
+        update_user_meta( $user_id, 'mwai_draft_media', array_values( $draft_media ) );
+      }
+
+      // Delete video from OpenAI if applicable
+      if ( !empty( $openai_id ) ) {
+        $env = $this->core->get_ai_env( $envId );
+        $api_key = $env['apikey'] ?? '';
+
+        if ( !empty( $api_key ) ) {
+          wp_remote_request( 'https://api.openai.com/v1/videos/' . $openai_id, [
+            'method' => 'DELETE',
+            'headers' => [ 'Authorization' => 'Bearer ' . $api_key ],
+            'timeout' => 15
+          ] );
+        }
+      }
+
       return $this->create_rest_response( [ 'success' => true ], 200 );
     }
     catch ( Exception $e ) {

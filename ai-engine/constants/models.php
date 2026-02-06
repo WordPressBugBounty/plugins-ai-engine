@@ -4,6 +4,106 @@
 
 define( 'MWAI_OPENAI_MODELS', [
   /*
+    GPT-5.2
+    The best model for coding and agentic tasks across industries
+    https://platform.openai.com/docs/models/gpt-5.2
+    */
+  [
+    'model' => 'gpt-5.2',
+    'name' => 'GPT-5.2',
+    'family' => 'gpt-5',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 1.75,
+      'out' => 14.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 128000,
+    'maxContextualTokens' => 400000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'json', 'responses', 'mcp', 'reasoning', 'verbosity'],
+    'tools' => ['web_search', 'image_generation', 'file_search', 'code_interpreter'],
+    'params' => [
+      'reasoning' => ['none', 'low', 'medium', 'high', 'xhigh'],
+      'verbosity' => ['low', 'medium', 'high']
+    ]
+  ],
+  /*
+    GPT-5.2 Chat
+    GPT-5.2 model used in ChatGPT
+    https://platform.openai.com/docs/models/gpt-5.2
+    */
+  [
+    'model' => 'gpt-5.2-chat-latest',
+    'name' => 'GPT-5.2 Chat',
+    'family' => 'gpt-5',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 1.75,
+      'out' => 14.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 128000,
+    'maxContextualTokens' => 400000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'responses', 'mcp'],
+    'tools' => ['web_search', 'file_search', 'code_interpreter']
+  ],
+  /*
+    GPT-5.2 Pro
+    Version of GPT-5.2 that produces smarter and more precise responses
+    https://platform.openai.com/docs/models/gpt-5.2-pro
+    */
+  [
+    'model' => 'gpt-5.2-pro',
+    'name' => 'GPT-5.2 Pro',
+    'family' => 'gpt-5',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 21.00,
+      'out' => 168.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 128000,
+    'maxContextualTokens' => 400000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'json', 'responses', 'mcp', 'reasoning', 'verbosity'],
+    'tools' => ['web_search', 'image_generation', 'file_search', 'code_interpreter'],
+    'params' => [
+      'reasoning' => ['medium', 'high', 'xhigh'],
+      'verbosity' => ['low', 'medium', 'high']
+    ]
+  ],
+  /*
+    GPT-5.1
+    Demo model with enhanced capabilities
+    https://platform.openai.com/docs/models/gpt-5.1
+    */
+  [
+    'model' => 'gpt-5.1',
+    'name' => 'GPT-5.1',
+    'family' => 'gpt-5',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 1.25,
+      'out' => 10.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 128000,
+    'maxContextualTokens' => 400000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'json', 'responses', 'mcp', 'reasoning', 'verbosity'],
+    'tools' => ['web_search', 'image_generation', 'file_search', 'code_interpreter'],
+    'params' => [
+      'reasoning' => ['none', 'minimal', 'low', 'medium', 'high'],
+      'verbosity' => ['low', 'medium', 'high']
+    ]
+  ],
+  /*
     GPT-5
     The best model for coding and agentic tasks across domains
     https://platform.openai.com/docs/models/gpt-5
@@ -22,10 +122,10 @@ define( 'MWAI_OPENAI_MODELS', [
     'maxCompletionTokens' => 128000,
     'maxContextualTokens' => 400000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'responses', 'mcp', 'reasoning', 'verbosity'],
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'json', 'responses', 'mcp', 'reasoning', 'verbosity'],
     'tools' => ['web_search', 'image_generation', 'file_search', 'code_interpreter'],
     'params' => [
-      'reasoning' => ['minimal', 'low', 'medium', 'high'],
+      'reasoning' => ['none', 'minimal', 'low', 'medium', 'high'],
       'verbosity' => ['low', 'medium', 'high']
     ]
   ],
@@ -48,10 +148,10 @@ define( 'MWAI_OPENAI_MODELS', [
     'maxCompletionTokens' => 128000,
     'maxContextualTokens' => 400000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'responses', 'mcp', 'reasoning', 'verbosity'],
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'json', 'responses', 'mcp', 'reasoning', 'verbosity'],
     'tools' => ['web_search', 'image_generation', 'file_search', 'code_interpreter'],
     'params' => [
-      'reasoning' => ['minimal', 'low', 'medium', 'high'],
+      'reasoning' => ['none', 'minimal', 'low', 'medium', 'high'],
       'verbosity' => ['low', 'medium', 'high']
     ]
   ],
@@ -74,10 +174,10 @@ define( 'MWAI_OPENAI_MODELS', [
     'maxCompletionTokens' => 128000,
     'maxContextualTokens' => 400000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'responses', 'mcp', 'reasoning', 'verbosity'],
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'json', 'responses', 'mcp', 'reasoning', 'verbosity'],
     'tools' => ['web_search', 'image_generation', 'file_search', 'code_interpreter'],
     'params' => [
-      'reasoning' => ['minimal', 'low', 'medium', 'high'],
+      'reasoning' => ['none', 'minimal', 'low', 'medium', 'high'],
       'verbosity' => ['low', 'medium', 'high']
     ]
   ],
@@ -100,9 +200,35 @@ define( 'MWAI_OPENAI_MODELS', [
     'maxCompletionTokens' => 16384,
     'maxContextualTokens' => 128000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'responses', 'mcp'],
+    'tags' => ['core', 'chat', 'vision', 'files', 'responses', 'mcp'],
+    'tools' => ['web_search', 'file_search', 'code_interpreter'],
+    'params' => [
+      'verbosity' => ['low', 'medium', 'high']
+    ]
+  ],
+  /*
+    GPT-5 Pro
+    Version of GPT-5 that produces smarter and more precise responses
+    https://platform.openai.com/docs/models/gpt-5
+    */
+  [
+    'model' => 'gpt-5-pro',
+    'name' => 'GPT-5 Pro',
+    'family' => 'gpt-5',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 15.00,
+      'out' => 120.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 272000,
+    'maxContextualTokens' => 400000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'json', 'responses', 'mcp', 'reasoning', 'verbosity'],
     'tools' => ['web_search', 'image_generation', 'file_search', 'code_interpreter'],
     'params' => [
+      'reasoning' => ['none', 'minimal', 'low', 'medium', 'high'],
       'verbosity' => ['low', 'medium', 'high']
     ]
   ],
@@ -125,7 +251,7 @@ define( 'MWAI_OPENAI_MODELS', [
     'maxCompletionTokens' => 32768,
     'maxContextualTokens' => 1047576,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'finetune', 'responses', 'mcp'],
+    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'finetune', 'responses', 'mcp', 'deprecated'],
     'tools' => ['web_search', 'image_generation', 'code_interpreter']
   ],
   /*
@@ -147,7 +273,7 @@ define( 'MWAI_OPENAI_MODELS', [
     'maxCompletionTokens' => 32768,
     'maxContextualTokens' => 1047576,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'finetune', 'responses', 'mcp'],
+    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'finetune', 'responses', 'mcp', 'deprecated'],
     'tools' => ['web_search', 'image_generation', 'code_interpreter']
   ],
   /*
@@ -191,7 +317,7 @@ define( 'MWAI_OPENAI_MODELS', [
     'maxCompletionTokens' => 16384,
     'maxContextualTokens' => 128000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'finetune', 'mcp', 'responses'],
+    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'finetune', 'mcp', 'responses', 'deprecated'],
     'tools' => ['web_search', 'image_generation', 'code_interpreter']
   ],
   /*
@@ -217,7 +343,7 @@ define( 'MWAI_OPENAI_MODELS', [
       'out' => 0.60,
       'train' => 3.00
     ],
-    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'finetune', 'mcp', 'responses'],
+    'tags' => ['core', 'chat', 'vision', 'functions', 'json', 'finetune', 'mcp', 'responses', 'deprecated'],
     'tools' => ['web_search', 'image_generation', 'code_interpreter']
   ],
   /*
@@ -331,6 +457,35 @@ define( 'MWAI_OPENAI_MODELS', [
     'tags' => ['core', 'realtime', 'functions', 'vision', 'mcp']
   ],
   /*
+                GPT Realtime Mini
+                Cost-efficient version of GPT Realtime
+                https://platform.openai.com/docs/models/gpt-realtime-mini
+                */
+  [
+    'model' => 'gpt-realtime-mini',
+    'name' => 'GPT Realtime Mini',
+    'family' => 'realtime',
+    'features' => ['core', 'realtime', 'functions'],
+    'price' => [
+      'text' => [
+        'in' => 0.60,
+        'cache' => 0.06,
+        'out' => 2.40,
+      ],
+      'audio' => [
+        'in' => 10.00,
+        'cache' => 0.06,
+        'out' => 20.00,
+      ]
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 4096,
+    'maxContextualTokens' => 32000,
+    'finetune' => false,
+    'tags' => ['core', 'realtime', 'functions', 'vision']
+  ],
+  /*
                 GPT-4o Realtime
                 Model capable of realtime text and audio inputs and outputs
                 https://platform.openai.com/docs/models/gpt-4o-realtime-preview
@@ -357,7 +512,7 @@ define( 'MWAI_OPENAI_MODELS', [
     'maxCompletionTokens' => 4096,
     'maxContextualTokens' => 128000,
     'finetune' => false,
-    'tags' => ['core', 'realtime', 'functions']
+    'tags' => ['core', 'realtime', 'functions', 'vision', 'deprecated']
   ],
   /*
             GPT-4o mini Realtime
@@ -386,7 +541,7 @@ define( 'MWAI_OPENAI_MODELS', [
     'maxCompletionTokens' => 4096,
     'maxContextualTokens' => 128000,
     'finetune' => false,
-    'tags' => ['core', 'realtime', 'functions']
+    'tags' => ['core', 'realtime', 'functions', 'vision', 'deprecated']
   ],
   /*
         GPT-4
@@ -461,29 +616,92 @@ define( 'MWAI_OPENAI_MODELS', [
       https://platform.openai.com/docs/models/dall-e-3
       */
   [
-    'model' => 'gpt-image-1',
-    'name' => 'GPT Image 1 (High)',
+    'model' => 'gpt-image-1.5',
+    'name' => 'GPT Image 1.5',
     'family' => 'gpt-image',
     'features' => ['text-to-image'],
     'resolutions' => [
       [
         'name' => '1024x1024',
-        'label' => '1024x1024',
-        'price' => 0.167
+        'label' => '1024x1024'
       ],
       [
         'name' => '1024x1536',
-        'label' => '1024x1536',
-        'price' => 0.25
+        'label' => '1024x1536'
       ],
       [
         'name' => '1536x1024',
-        'label' => '1536x1024',
-        'price' => 0.25
+        'label' => '1536x1024'
       ]
     ],
-    'type' => 'image',
-    'unit' => 1,
+    'type' => 'token',
+    'mode' => 'image',
+    'price' => [
+      'in' => 8.00,
+      'out' => 32.00,
+      'cached' => 2.00
+    ],
+    'unit' => 1 / 1000000,
+    'finetune' => false,
+    'tags' => ['core', 'image', 'image-edit', 'responses']
+  ],
+  [
+    'model' => 'gpt-image-1',
+    'name' => 'GPT Image 1',
+    'family' => 'gpt-image',
+    'features' => ['text-to-image'],
+    'resolutions' => [
+      [
+        'name' => '1024x1024',
+        'label' => '1024x1024'
+      ],
+      [
+        'name' => '1024x1536',
+        'label' => '1024x1536'
+      ],
+      [
+        'name' => '1536x1024',
+        'label' => '1536x1024'
+      ]
+    ],
+    'type' => 'token',
+    'mode' => 'image',
+    'price' => [
+      'in' => 10.00,
+      'out' => 40.00,
+      'cached' => 2.50
+    ],
+    'unit' => 1 / 1000000,
+    'finetune' => false,
+    'tags' => ['core', 'image', 'image-edit', 'responses']
+  ],
+  [
+    'model' => 'gpt-image-1-mini',
+    'name' => 'GPT Image 1 Mini',
+    'family' => 'gpt-image',
+    'features' => ['text-to-image'],
+    'resolutions' => [
+      [
+        'name' => '1024x1024',
+        'label' => '1024x1024'
+      ],
+      [
+        'name' => '1024x1536',
+        'label' => '1024x1536'
+      ],
+      [
+        'name' => '1536x1024',
+        'label' => '1536x1024'
+      ]
+    ],
+    'type' => 'token',
+    'mode' => 'image',
+    'price' => [
+      'in' => 2.50,
+      'out' => 8.00,
+      'cached' => 0.25
+    ],
+    'unit' => 1 / 1000000,
     'finetune' => false,
     'tags' => ['core', 'image', 'image-edit', 'responses']
   ],
@@ -541,7 +759,71 @@ define( 'MWAI_OPENAI_MODELS', [
     'finetune' => false,
     'tags' => ['core', 'image']
   ],
+  /*
+    Sora 2
+    Flagship video generation with synced audio
+    https://platform.openai.com/docs/models/sora-2
+    */
+  [
+    'model' => 'sora-2',
+    'name' => 'Sora 2',
+    'family' => 'sora',
+    'features' => ['text-to-video'],
+    'resolutions' => [
+      [
+        'name' => '720x1280',
+        'label' => 'Portrait (720x1280)',
+        'price' => 0.10
+      ],
+      [
+        'name' => '1280x720',
+        'label' => 'Landscape (1280x720)',
+        'price' => 0.10
+      ]
+    ],
+    'durations' => [ 4, 8, 12 ],
+    'type' => 'video',
+    'unit' => 'second',
+    'finetune' => false,
+    'tags' => ['core', 'video']
+  ],
+  [
+    'model' => 'sora-2-pro',
+    'name' => 'Sora 2 Pro',
+    'family' => 'sora',
+    'features' => ['text-to-video'],
+    'resolutions' => [
+      [
+        'name' => '720x1280',
+        'label' => 'Portrait (720x1280)',
+        'price' => 0.30
+      ],
+      [
+        'name' => '1280x720',
+        'label' => 'Landscape (1280x720)',
+        'price' => 0.30
+      ],
+      [
+        'name' => '1024x1792',
+        'label' => 'Portrait High (1024x1792)',
+        'price' => 0.50
+      ],
+      [
+        'name' => '1792x1024',
+        'label' => 'Landscape High (1792x1024)',
+        'price' => 0.50
+      ]
+    ],
+    'durations' => [ 4, 8, 12 ],
+    'type' => 'video',
+    'unit' => 'second',
+    'finetune' => false,
+    'tags' => ['core', 'video']
+  ],
   // Embedding models:
+  // OpenAI v3 models support Matryoshka embeddings (MRL) allowing dimension truncation
+  // while preserving semantic meaning. The dimensions array lists native + recommended sizes.
+  // See: https://huggingface.co/blog/matryoshka
   [
     'model' => 'text-embedding-3-small',
     'name' => 'Embedding 3-Small',
@@ -551,8 +833,8 @@ define( 'MWAI_OPENAI_MODELS', [
     'type' => 'token',
     'unit' => 1 / 1000000,
     'finetune' => false,
-    'dimensions' => [ 512, 1536 ],
-    'tags' => ['core', 'embedding'],
+    'dimensions' => 1536, // Native output dimension
+    'tags' => ['core', 'embedding', 'matryoshka'],
   ],
   [
     'model' => 'text-embedding-3-large',
@@ -563,9 +845,10 @@ define( 'MWAI_OPENAI_MODELS', [
     'type' => 'token',
     'unit' => 1 / 1000000,
     'finetune' => false,
-    'dimensions' => [ 256, 1024, 3072 ],
-    'tags' => ['core', 'embedding'],
+    'dimensions' => 3072, // Native output dimension
+    'tags' => ['core', 'embedding', 'matryoshka'],
   ],
+  // Ada-002 is a legacy model with fixed dimensions (no truncation support)
   [
     'model' => 'text-embedding-ada-002',
     'name' => 'Embedding Ada-002',
@@ -575,7 +858,7 @@ define( 'MWAI_OPENAI_MODELS', [
     'type' => 'token',
     'unit' => 1 / 1000000,
     'finetune' => false,
-    'dimensions' => [ 1536 ],
+    'dimensions' => 1536, // Fixed dimension (no matryoshka support)
     'tags' => ['core', 'embedding'],
   ],
   // Audio Models:
@@ -588,7 +871,7 @@ define( 'MWAI_OPENAI_MODELS', [
     'type' => 'second',
     'unit' => 1,
     'finetune' => false,
-    'tags' => ['core', 'audio'],
+    'tags' => ['core', 'audio', 'deprecated'],
   ],
   [
     'model' => 'gpt-4o-mini-transcribe',
@@ -599,7 +882,7 @@ define( 'MWAI_OPENAI_MODELS', [
     'type' => 'second',
     'unit' => 1,
     'finetune' => false,
-    'tags' => ['core', 'audio'],
+    'tags' => ['core', 'audio', 'deprecated'],
   ],
   [
     'model' => 'whisper-1',
@@ -658,62 +941,46 @@ define( 'MWAI_OPENAI_MODELS', [
     'finetune' => false,
     'tags' => ['core', 'image', 'deprecated']
   ],
-  // [
-  //   "model" => "gpt-3.5-turbo-16k",
-  //   "description" => "Offers 4 times the context length of gpt-3.5-turbo at twice the price.",
-  //   "name" => "GPT-3.5 Turbo 16k",
-  //   "family" => "turbo",
-  //   "features" => ['completion'],
-  //   "price" => [
-  //     "in" => 30.00,
-  //     "out" => 40.0,
-  //   ],
-  //   "type" => "token",
-  //   "unit" => 1 / 1000000,
-  //   "maxTokens" => 16385,
-  //   "finetune" => false,
-  //   "tags" => ['core', 'chat', '16k']
-  // ],
-  // [
-  //   "model" => "gpt-3.5-turbo-instruct",
-  //   "name" => "GPT-3.5 Turbo Instruct",
-  //   "family" => "turbo-instruct",
-  //   "features" => ['completion'],
-  //   "price" => [
-  //     "in" => 0.50,
-  //     "out" => 2.00,
-  //   ],
-  //   "type" => "token",
-  //   "unit" => 1 / 1000000,
-  //   "finetune" => [
-  //     "in" => 0.03,
-  //     "out" => 0.06,
-  //   ],
-  //   "maxTokens" => 4096,
-  //   "tags" => ['core', 'chat', '4k']
-  // ],
 ] );
 
 define( 'MWAI_ANTHROPIC_MODELS', [
   [
-    'model' => 'claude-opus-4-20250514',
-    'name' => 'Claude-4 Opus (2025/05/14)',
+    'model' => 'claude-opus-4-6',
+    'name' => 'Claude Opus 4.6',
     'family' => 'claude-4',
     'features' => ['completion'],
     'price' => [
-      'in' => 15.00,
-      'out' => 75.00,
+      'in' => 5.00,
+      'out' => 25.00,
     ],
     'type' => 'token',
     'unit' => 1 / 1000000,
-    'maxCompletionTokens' => 32000,
+    'maxCompletionTokens' => 128000,
     'maxContextualTokens' => 200000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'reasoning', 'mcp']
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp', 'latest'],
+    'tools' => ['code_interpreter', 'thinking']
   ],
   [
-    'model' => 'claude-sonnet-4-20250514',
-    'name' => 'Claude-4 Sonnet (2025/05/14)',
+    'model' => 'claude-opus-4-5',
+    'name' => 'Claude Opus 4.5',
+    'family' => 'claude-4',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 5.00,
+      'out' => 25.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 64000,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp'],
+    'tools' => ['code_interpreter', 'thinking']
+  ],
+  [
+    'model' => 'claude-sonnet-4-5-20250929',
+    'name' => 'Claude Sonnet 4.5 (2025/09/29)',
     'family' => 'claude-4',
     'features' => ['completion'],
     'price' => [
@@ -725,7 +992,161 @@ define( 'MWAI_ANTHROPIC_MODELS', [
     'maxCompletionTokens' => 64000,
     'maxContextualTokens' => 200000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'reasoning', 'mcp']
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp'],
+    'tools' => ['code_interpreter', 'thinking']
+  ],
+  [
+    'model' => 'claude-sonnet-4-5',
+    'name' => 'Claude Sonnet 4.5',
+    'family' => 'claude-4',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 3.00,
+      'out' => 15.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 64000,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp', 'latest'],
+    'tools' => ['code_interpreter', 'thinking']
+  ],
+  [
+    'model' => 'claude-opus-4-1-20250805',
+    'name' => 'Claude Opus 4.1 (2025/08/05)',
+    'family' => 'claude-4',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 15.00,
+      'out' => 75.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 32000,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp'],
+    'tools' => ['code_interpreter', 'thinking']
+  ],
+  [
+    'model' => 'claude-opus-4-1',
+    'name' => 'Claude Opus 4.1',
+    'family' => 'claude-4',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 15.00,
+      'out' => 75.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 32000,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp'],
+    'tools' => ['code_interpreter', 'thinking']
+  ],
+  [
+    'model' => 'claude-opus-4-20250514',
+    'name' => 'Claude Opus 4 (2025/05/14)',
+    'family' => 'claude-4',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 15.00,
+      'out' => 75.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 32000,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp'],
+    'tools' => ['code_interpreter', 'thinking']
+  ],
+  [
+    'model' => 'claude-opus-4-0',
+    'name' => 'Claude Opus 4',
+    'family' => 'claude-4',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 15.00,
+      'out' => 75.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 32000,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp', 'latest'],
+    'tools' => ['code_interpreter', 'thinking']
+  ],
+  [
+    'model' => 'claude-sonnet-4-20250514',
+    'name' => 'Claude Sonnet 4 (2025/05/14)',
+    'family' => 'claude-4',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 3.00,
+      'out' => 15.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 64000,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp'],
+    'tools' => ['code_interpreter', 'thinking']
+  ],
+  [
+    'model' => 'claude-sonnet-4-0',
+    'name' => 'Claude Sonnet 4',
+    'family' => 'claude-4',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 3.00,
+      'out' => 15.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 64000,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp', 'latest'],
+    'tools' => ['code_interpreter', 'thinking']
+  ],
+  [
+    'model' => 'claude-haiku-4-5-20251001',
+    'name' => 'Claude-4.5 Haiku (2025/10/01)',
+    'family' => 'claude-4',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 1.00,
+      'out' => 5.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 64000,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp'],
+    'tools' => ['code_interpreter', 'thinking']
+  ],
+  [
+    'model' => 'claude-haiku-4-5',
+    'name' => 'Claude-4.5 Haiku',
+    'family' => 'claude-4',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 1.00,
+      'out' => 5.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 64000,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp', 'latest'],
+    'tools' => ['code_interpreter', 'thinking']
   ],
   [
     'model' => 'claude-3-7-sonnet-latest',
@@ -741,7 +1162,8 @@ define( 'MWAI_ANTHROPIC_MODELS', [
     'maxCompletionTokens' => 64000,
     'maxContextualTokens' => 200000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'reasoning', 'mcp']
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'reasoning', 'mcp'],
+    'tools' => ['code_interpreter', 'thinking']
   ],
   [
     'model' => 'claude-3-5-sonnet-latest',
@@ -757,7 +1179,7 @@ define( 'MWAI_ANTHROPIC_MODELS', [
     'maxCompletionTokens' => 4096,
     'maxContextualTokens' => 200000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'mcp']
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'mcp']
   ],
   [
     'model' => 'claude-3-5-sonnet-20241022',
@@ -789,7 +1211,7 @@ define( 'MWAI_ANTHROPIC_MODELS', [
     'maxCompletionTokens' => 4096,
     'maxContextualTokens' => 200000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'mcp']
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'mcp']
   ],
   [
     'model' => 'claude-3-sonnet-20240229',
@@ -805,9 +1227,10 @@ define( 'MWAI_ANTHROPIC_MODELS', [
     'maxCompletionTokens' => 4096,
     'maxContextualTokens' => 200000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions', 'deprecated']
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'deprecated']
   ],
   [
+    // Deprecated: Anthropic retired Claude 3 Opus on January 5, 2026.
     'model' => 'claude-3-opus-latest',
     'name' => 'Claude-3 Opus (Latest)',
     'family' => 'claude-3',
@@ -821,10 +1244,10 @@ define( 'MWAI_ANTHROPIC_MODELS', [
     'maxCompletionTokens' => 4096,
     'maxContextualTokens' => 200000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions']
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'deprecated']
   ],
   [
-    // TODO: Starting January 5, 2026 at 9AM PT, Anthropic is retiring and will no longer support Claude Opus 3 (claude-3-opus-20240229) on the API.
+    // Deprecated: Anthropic retired Claude 3 Opus on January 5, 2026.
     'model' => 'claude-3-opus-20240229',
     'name' => 'Claude-3 Opus (2024/02/29)',
     'family' => 'claude-3',
@@ -838,7 +1261,7 @@ define( 'MWAI_ANTHROPIC_MODELS', [
     'maxCompletionTokens' => 4096,
     'maxContextualTokens' => 200000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions']
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions', 'deprecated']
   ],
   [
     'model' => 'claude-3-5-haiku-20241022',
@@ -846,15 +1269,33 @@ define( 'MWAI_ANTHROPIC_MODELS', [
     'family' => 'claude-3',
     'features' => ['completion'],
     'price' => [
-      'in' => 1.00,
-      'out' => 5.00,
+      'in' => 0.80,
+      'out' => 4.00,
     ],
     'type' => 'token',
     'unit' => 1 / 1000000,
     'maxCompletionTokens' => 8192,
     'maxContextualTokens' => 200000,
     'finetune' => false,
-    'tags' => ['core', 'chat']
+    'tags' => ['core', 'chat', 'vision', 'files'],
+    'tools' => ['code_interpreter']
+  ],
+  [
+    'model' => 'claude-3-5-haiku-latest',
+    'name' => 'Claude-3.5 Haiku',
+    'family' => 'claude-3',
+    'features' => ['completion'],
+    'price' => [
+      'in' => 0.80,
+      'out' => 4.00,
+    ],
+    'type' => 'token',
+    'unit' => 1 / 1000000,
+    'maxCompletionTokens' => 8192,
+    'maxContextualTokens' => 200000,
+    'finetune' => false,
+    'tags' => ['core', 'chat', 'vision', 'files', 'latest'],
+    'tools' => ['code_interpreter']
   ],
   [
     'model' => 'claude-3-haiku-20240307',
@@ -870,7 +1311,7 @@ define( 'MWAI_ANTHROPIC_MODELS', [
     'maxCompletionTokens' => 4096,
     'maxContextualTokens' => 200000,
     'finetune' => false,
-    'tags' => ['core', 'chat', 'vision', 'functions']
+    'tags' => ['core', 'chat', 'vision', 'files', 'functions']
   ]
 ] );
 

@@ -258,6 +258,7 @@
   --mwai-backgroundPrimaryColor: #fafafa;
   --mwai-backgroundHeaderColor: #0084ff;
   --mwai-bubbleColor: #0084ff;
+  --mwai-iconSize: 60px;
   --mwai-headerColor: white;
   --mwai-conversationsBackgroundColor: white;
   --mwai-backgroundUserColor: #0084ff;
@@ -1177,11 +1178,10 @@
 .mwai-messages-theme .mwai-files {
   display: flex;
   flex-direction: column;
+  gap: 8px;
   padding: var(--mwai-spacing);
   background: var(--mwai-backgroundSecondaryColor);
   border-top: 1px solid var(--mwai-backgroundPrimaryColor);
-  max-height: 150px;
-  overflow-y: auto;
 }
 .mwai-messages-theme .mwai-files::-webkit-scrollbar {
   width: 6px;
@@ -1423,7 +1423,7 @@
 .mwai-messages-theme .mwai-text {
   overflow-wrap: anywhere;
 }
-.mwai-messages-theme .mwai-text img {
+.mwai-messages-theme .mwai-text img, .mwai-messages-theme .mwai-text svg {
   max-width: 100%;
 }
 .mwai-messages-theme .mwai-text div p:first-child {
@@ -1542,8 +1542,9 @@
 }
 .mwai-messages-theme.mwai-window .mwai-header {
   display: none;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
+  padding: 0 0 0 15px;
   border-radius: var(--mwai-borderRadius) var(--mwai-borderRadius) 0 0;
   background: var(--mwai-backgroundHeaderColor);
 }
@@ -1567,7 +1568,7 @@
   position: absolute;
   height: 13px;
   width: 13px;
-  border: 1px solid var(--mwai-headerColor);
+  border: 1.2px solid var(--mwai-headerColor);
 }
 .mwai-messages-theme.mwai-window .mwai-header .mwai-buttons .mwai-resize-button:hover:before {
   width: 16px;
@@ -1594,7 +1595,7 @@
   cursor: pointer;
   position: absolute;
   height: 22px;
-  width: 1px;
+  width: 1.2px;
   background-color: var(--mwai-headerColor);
 }
 .mwai-messages-theme.mwai-window .mwai-header .mwai-buttons .mwai-close-button:hover:before {
@@ -1867,25 +1868,25 @@
   opacity: 1 !important;
 }
 .mwai-messages-theme.mwai-bubble .mwai-trigger .mwai-icon-container {
-  background: var(--mwai-bubbleColor) !important;
-  width: 60px !important;
-  height: 60px !important;
-  border-radius: 100% !important;
+  background: var(--mwai-bubbleColor);
+  width: var(--mwai-iconSize, 60px);
+  height: var(--mwai-iconSize, 60px);
+  border-radius: 100%;
   transition: all 0.2s ease-out;
-  display: flex !important;
-  justify-content: center !important;
-  align-items: center !important;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 .mwai-messages-theme.mwai-bubble .mwai-trigger .mwai-icon-container .mwai-icon {
-  max-width: 50% !important;
-  max-height: 50% !important;
-  filter: none !important;
+  max-width: 50%;
+  max-height: 50%;
+  filter: none;
 }
 .mwai-messages-theme.mwai-bubble .mwai-trigger .mwai-icon-container .mwai-icon:hover {
-  transform: none !important;
+  transform: none;
 }
 .mwai-messages-theme.mwai-bubble .mwai-trigger .mwai-icon-container .mwai-emoji {
-  font-size: 30px !important;
+  font-size: calc(var(--mwai-iconSize, 60px) / 2);
 }
 .mwai-messages-theme.mwai-bubble .mwai-trigger .mwai-icon-container:hover {
   cursor: pointer;
@@ -2318,10 +2319,31 @@
   margin-top: 0;
   border: 2px solid var(--mwai-backgroundPrimaryColor);
   padding: calc(var(--mwai-spacing) / 2);
+  padding-right: calc(var(--mwai-spacing) / 2 + 10px);
   border-radius: var(--mwai-borderRadius);
-  display: flex;
-  justify-content: center;
   font-size: 80%;
+  text-align: center;
+  max-height: 120px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mwai-backgroundHeaderColor) transparent;
+}
+.mwai-messages-theme .mwai-realtime .mwai-last-transcript::-webkit-scrollbar {
+  width: 6px;
+}
+.mwai-messages-theme .mwai-realtime .mwai-last-transcript::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+.mwai-messages-theme .mwai-realtime .mwai-last-transcript::-webkit-scrollbar-thumb {
+  background: var(--mwai-backgroundHeaderColor);
+  border-radius: 10px;
+}
+.mwai-messages-theme .mwai-realtime .mwai-last-transcript::-webkit-scrollbar-thumb:hover {
+  background: var(--mwai-primaryColor);
 }
 .mwai-messages-theme .mwai-realtime .mwai-statistics {
   display: grid;
@@ -2941,5 +2963,3 @@
   background-color: rgba(211, 47, 47, 0.1);
   color: #b71c1c;
 }
-
-/*# sourceMappingURL=messages.css.map */

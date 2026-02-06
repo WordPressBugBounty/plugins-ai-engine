@@ -12,10 +12,10 @@ class Meow_MWAI_Services_ModelEnvironment {
       throw new Exception( 'Invalid query object provided to validate_env_model.' );
     }
 
-    // The query object uses envId, not env
-    $env = $query->envId ?? $query->env ?? null;
+    // The query object uses envId (string ID) for the environment
+    $env = $query->envId ?? null;
     $model = $query->model;
-    
+
     // For assistant queries with a valid envId already set, respect it
     if ( $query instanceof Meow_MWAI_Query_Assistant && !empty( $env ) && !empty( $query->assistantId ) ) {
       // Set model to 'n/a' for assistants since they don't need a model
@@ -26,9 +26,26 @@ class Meow_MWAI_Services_ModelEnvironment {
     }
 
     if ( empty( $env ) && empty( $model ) ) {
-      $this->set_default_env_and_model( $query, 'ai_default_env', 'ai_default_model' );
+      // Use specialized defaults based on query type
+      if ( $query instanceof Meow_MWAI_Query_Image ) {
+        $this->set_default_env_and_model( $query, 'ai_images_default_env', 'ai_images_default_model' );
+      }
+      else if ( $query instanceof Meow_MWAI_Query_Transcribe ) {
+        $this->set_default_env_and_model( $query, 'ai_audio_default_env', 'ai_audio_default_model' );
+      }
+      else if ( $query instanceof Meow_MWAI_Query_Embed ) {
+        $this->set_default_env_and_model( $query, 'ai_embeddings_default_env', 'ai_embeddings_default_model' );
+      }
+      else {
+        $this->set_default_env_and_model( $query, 'ai_default_env', 'ai_default_model' );
+      }
     }
     else if ( empty( $env ) && !empty( $model ) ) {
+      // For embeddings queries, require a configured environment
+      if ( $query instanceof Meow_MWAI_Query_Embed ) {
+        throw new Exception( __( 'AI Engine: No embeddings environment is configured. Please go to Settings > Default Environments for AI > Embeddings and select an environment.', 'ai-engine' ) );
+      }
+
       // If the model is available in the list of models, we can use it
       $envs = $this->core->get_option( 'ai_envs' );
       $models = $this->core->get_option( 'ai_models' );
@@ -62,7 +79,29 @@ class Meow_MWAI_Services_ModelEnvironment {
       throw new Exception( 'The environment is required.' );
     }
     else if ( !empty( $env ) && empty( $model ) ) {
-      $this->set_default_env_and_model( $query, 'ai_default_env', 'ai_default_model' );
+      // EnvId is set but model is empty - get first model from selected environment
+      $envData = $this->get_ai_env( $env );
+      if ( !empty( $envData['models'] ) && is_array( $envData['models'] ) ) {
+        $firstModel = reset( $envData['models'] );
+        if ( !empty( $firstModel['model'] ) ) {
+          $query->model = $firstModel['model'];
+          return;
+        }
+      }
+
+      // Fallback: if environment has no models, try type-specific defaults
+      if ( $query instanceof Meow_MWAI_Query_Image ) {
+        $this->set_default_model_only( $query, 'ai_images_default_model' );
+      }
+      else if ( $query instanceof Meow_MWAI_Query_Transcribe ) {
+        $this->set_default_model_only( $query, 'ai_audio_default_model' );
+      }
+      else if ( $query instanceof Meow_MWAI_Query_Embed ) {
+        $this->set_default_model_only( $query, 'ai_embeddings_default_model' );
+      }
+      else {
+        $this->set_default_model_only( $query, 'ai_default_model' );
+      }
     }
     else {
       // We have both, let's continue
@@ -82,12 +121,20 @@ class Meow_MWAI_Services_ModelEnvironment {
     }
   }
 
+  private function set_default_model_only( $query, $modelOption ) {
+    // Only set the model, preserve existing envId
+    $model = $this->core->get_option( $modelOption );
+    if ( !empty( $model ) ) {
+      $query->model = $model;
+    }
+  }
+
   public function get_embeddings_env( $envId = null ) {
     // Use provided envId or fall back to default
     if ( empty( $envId ) ) {
       $envId = $this->core->get_option( 'embeddings_default_env' );
     }
-    
+
     // Get embeddings environments (not AI environments)
     $envs = $this->core->get_option( 'embeddings_envs' );
     if ( !empty( $envs ) ) {
@@ -97,7 +144,7 @@ class Meow_MWAI_Services_ModelEnvironment {
         }
       }
     }
-    
+
     return null;
   }
 
@@ -126,7 +173,7 @@ class Meow_MWAI_Services_ModelEnvironment {
   }
 
   public function get_engine_models( $query ) {
-    $envId = $query->env;
+    $envId = $query->envId;
     $env = $this->get_ai_env( $envId );
     $models = apply_filters( 'mwai_engine_models', [], $env, $query );
     return $models;

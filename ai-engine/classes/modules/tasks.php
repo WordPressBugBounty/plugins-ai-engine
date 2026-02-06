@@ -577,7 +577,7 @@ class Meow_MWAI_Modules_Tasks {
       // Default result if nothing handles it
       if ( $result === null ) {
         $result = [
-          'ok' => false,
+          'ok' => true,
           'message' => "No handler for '{$task->task_name}'",
         ];
       }
@@ -625,6 +625,7 @@ class Meow_MWAI_Modules_Tasks {
       'step_name' => null,
       'data' => null,
       'meta' => null,
+      'next_run_delay' => null,
     ];
     
     return wp_parse_args( $result, $defaults );
@@ -671,7 +672,11 @@ class Meow_MWAI_Modules_Tasks {
       if ( !$result['done'] ) {
         // Multi-step task not finished - continue quickly
         $update_data['status'] = 'pending';
-        $update_data['next_run'] = gmdate( 'Y-m-d H:i:s', $now_ts + 10 );
+        $delay = isset( $result['next_run_delay'] ) ? (int) $result['next_run_delay'] : 10;
+        if ( $delay < 1 ) {
+          $delay = 1;
+        }
+        $update_data['next_run'] = gmdate( 'Y-m-d H:i:s', $now_ts + $delay );
       }
       else if ( $task->schedule === 'once' ) {
         // One-off task completed
@@ -1031,7 +1036,7 @@ class Meow_MWAI_Modules_Tasks {
     $this->ensure( [
       'name' => 'cleanup_files',
       'category' => 'system',
-      'description' => 'Delete orphaned and temporary files.',
+      'description' => 'Delete expired files based on expiration dates.',
       'schedule' => '0 4 * * *', // Daily at 4 AM UTC
     ] );
     
@@ -1385,28 +1390,40 @@ class Meow_MWAI_Modules_Tasks {
    * Upgrade database schema if needed
    */
   private function upgrade_db() {
+    // Add category column if it doesn't exist
+    $category_exists = $this->wpdb->get_var(
+      "SHOW COLUMNS FROM {$this->table_tasks} LIKE 'category'"
+    );
+
+    if ( !$category_exists ) {
+      $this->wpdb->query(
+        "ALTER TABLE {$this->table_tasks}
+         ADD COLUMN category VARCHAR(32) NOT NULL DEFAULT 'general' AFTER description"
+      );
+    }
+
     // Remove deprecated columns if they exist
     $columns_to_remove = ['auto_delete', 'deletable', 'is_multistep', 'last_message'];
-    
+
     foreach ( $columns_to_remove as $column ) {
-      $column_exists = $this->wpdb->get_var( 
-        "SHOW COLUMNS FROM {$this->table_tasks} LIKE '$column'" 
+      $column_exists = $this->wpdb->get_var(
+        "SHOW COLUMNS FROM {$this->table_tasks} LIKE '$column'"
       );
-      
+
       if ( $column_exists ) {
         $this->wpdb->query( "ALTER TABLE {$this->table_tasks} DROP COLUMN $column" );
       }
     }
-    
+
     // Add step_data column if it doesn't exist
-    $step_data_exists = $this->wpdb->get_var( 
-      "SHOW COLUMNS FROM {$this->table_tasks} LIKE 'step_data'" 
+    $step_data_exists = $this->wpdb->get_var(
+      "SHOW COLUMNS FROM {$this->table_tasks} LIKE 'step_data'"
     );
-    
+
     if ( !$step_data_exists ) {
-      $this->wpdb->query( 
-        "ALTER TABLE {$this->table_tasks} 
-         ADD COLUMN step_data LONGTEXT NULL AFTER step_name" 
+      $this->wpdb->query(
+        "ALTER TABLE {$this->table_tasks}
+         ADD COLUMN step_data LONGTEXT NULL AFTER step_name"
       );
     }
   }

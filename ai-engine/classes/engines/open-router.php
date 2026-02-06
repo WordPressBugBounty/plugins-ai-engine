@@ -38,7 +38,7 @@ class Meow_MWAI_Engines_OpenRouter extends Meow_MWAI_Engines_ChatML {
       $this->apiKey = $query->apiKey;
     }
     if ( empty( $this->apiKey ) ) {
-      throw new Exception( 'No API Key provided. Please visit the Settings.' );
+      throw new Exception( 'No API Key provided. Please visit the Settings. (OpenRouter Engine)' );
     }
     return [
       'Content-Type' => 'application/json',
@@ -51,9 +51,19 @@ class Meow_MWAI_Engines_OpenRouter extends Meow_MWAI_Engines_ChatML {
 
   protected function build_body( $query, $streamCallback = null, $extra = null ) {
     $body = parent::build_body( $query, $streamCallback, $extra );
-    // Use transforms from OpenRouter docs
-    $body['transforms'] = ['middle-out'];
-    $body['usage'] = [ 'include' => true ];
+    // Only add transforms and usage for chat completions, not embeddings
+    if ( !( $query instanceof Meow_MWAI_Query_Embed ) ) {
+      $body['transforms'] = ['middle-out'];
+      $body['usage'] = [ 'include' => true ];
+    }
+    else {
+      // Only OpenAI embedding models support the dimensions parameter
+      // Remove it for other providers to avoid errors
+      $model = $query->model ?? '';
+      if ( isset( $body['dimensions'] ) && strpos( $model, 'openai/' ) !== 0 ) {
+        unset( $body['dimensions'] );
+      }
+    }
     return $body;
   }
 
@@ -101,10 +111,12 @@ class Meow_MWAI_Engines_OpenRouter extends Meow_MWAI_Engines_ChatML {
     if ( !is_null( $returned_price ) && !is_null( $returned_in_tokens ) && !is_null( $returned_out_tokens ) ) {
       // OpenRouter returns price from API = full accuracy
       $reply->set_usage_accuracy( 'full' );
-    } elseif ( !is_null( $returned_in_tokens ) && !is_null( $returned_out_tokens ) ) {
+    }
+    elseif ( !is_null( $returned_in_tokens ) && !is_null( $returned_out_tokens ) ) {
       // Tokens from API but price calculated = tokens accuracy
       $reply->set_usage_accuracy( 'tokens' );
-    } else {
+    }
+    else {
       // Everything estimated
       $reply->set_usage_accuracy( 'estimated' );
     }
@@ -116,6 +128,135 @@ class Meow_MWAI_Engines_OpenRouter extends Meow_MWAI_Engines_ChatML {
   }
 
   /**
+   * OpenRouter uses /chat/completions with modalities parameter for image generation,
+   * not the standard /images/generations endpoint.
+   */
+  public function run_image_query( $query, $streamCallback = null ) {
+    $body = [
+      'model' => $query->model,
+      'messages' => [
+        [
+          'role' => 'user',
+          'content' => $query->get_message()
+        ]
+      ],
+      'modalities' => [ 'text', 'image' ],
+    ];
+
+    // Add number of images if specified
+    if ( !empty( $query->maxResults ) && $query->maxResults > 1 ) {
+      $body['n'] = $query->maxResults;
+    }
+
+    // Add image config for Gemini models (aspect ratio support)
+    if ( !empty( $query->resolution ) && strpos( $query->model, 'google/' ) === 0 ) {
+      $body['image_config'] = [
+        'aspect_ratio' => $query->resolution
+      ];
+    }
+
+    $endpoint = apply_filters( 'mwai_openrouter_endpoint', 'https://openrouter.ai/api/v1', $this->env );
+    $url = trailingslashit( $endpoint ) . 'chat/completions';
+    $headers = $this->build_headers( $query );
+    $options = $this->build_options( $headers, $body );
+
+    try {
+      $res = $this->run_query( $url, $options );
+      $data = $res['data'];
+
+      if ( empty( $data ) || !isset( $data['choices'] ) ) {
+        throw new Exception( 'No image generated in response.' );
+      }
+
+      $reply = new Meow_MWAI_Reply( $query );
+      $reply->set_type( 'images' );
+      $images = [];
+
+      // Extract images from the response
+      foreach ( $data['choices'] as $choice ) {
+        $message = $choice['message'] ?? [];
+
+        // Check for images in the message (OpenRouter format)
+        // Each image is: { "type": "image_url", "image_url": { "url": "data:image/png;base64,..." } }
+        if ( isset( $message['images'] ) && is_array( $message['images'] ) ) {
+          foreach ( $message['images'] as $image ) {
+            if ( is_array( $image ) && isset( $image['image_url']['url'] ) ) {
+              $images[] = [ 'url' => $image['image_url']['url'] ];
+            }
+            elseif ( is_array( $image ) && isset( $image['image_url'] ) && is_string( $image['image_url'] ) ) {
+              $images[] = [ 'url' => $image['image_url'] ];
+            }
+            elseif ( is_string( $image ) ) {
+              // Direct base64 string
+              $images[] = [ 'url' => $image ];
+            }
+          }
+        }
+
+        // Also check content array for image parts
+        if ( isset( $message['content'] ) && is_array( $message['content'] ) ) {
+          foreach ( $message['content'] as $part ) {
+            if ( isset( $part['type'] ) && $part['type'] === 'image_url' ) {
+              if ( isset( $part['image_url']['url'] ) ) {
+                $images[] = [ 'url' => $part['image_url']['url'] ];
+              }
+              elseif ( is_string( $part['image_url'] ) ) {
+                $images[] = [ 'url' => $part['image_url'] ];
+              }
+            }
+          }
+        }
+      }
+
+      if ( empty( $images ) ) {
+        throw new Exception( 'No images found in the response.' );
+      }
+
+      // Record usage
+      $model = $query->model;
+      $resolution = !empty( $query->resolution ) ? $query->resolution : '1024x1024';
+
+      if ( isset( $data['usage'] ) ) {
+        $usage = $data['usage'];
+        $promptTokens = $usage['prompt_tokens'] ?? 0;
+        $completionTokens = $usage['completion_tokens'] ?? 0;
+        $this->core->record_tokens_usage( $model, $promptTokens, $completionTokens );
+        $usage['queries'] = 1;
+        $usage['accuracy'] = 'tokens';
+        $reply->set_usage( $usage );
+        $reply->set_usage_accuracy( 'tokens' );
+      }
+      else {
+        $usage = $this->core->record_images_usage( $model, $resolution, count( $images ) );
+        $reply->set_usage( $usage );
+        $reply->set_usage_accuracy( 'estimated' );
+      }
+
+      $reply->set_choices( $images );
+
+      // Handle local download if enabled
+      if ( $query->localDownload === 'uploads' || $query->localDownload === 'library' ) {
+        foreach ( $reply->results as &$result ) {
+          $fileId = $this->core->files->upload_file( $result, null, 'generated', [
+            'query_envId' => $query->envId,
+            'query_session' => $query->session,
+            'query_model' => $query->model,
+          ], $query->envId, $query->localDownload, $query->localDownloadExpiry );
+          $fileUrl = $this->core->files->get_url( $fileId );
+          $result = $fileUrl;
+        }
+      }
+
+      $reply->result = $reply->results[0];
+      return $reply;
+    }
+    catch ( Exception $e ) {
+      Meow_MWAI_Logging::error( 'OpenRouter: ' . $e->getMessage() );
+      throw new Exception( 'OpenRouter: ' . $e->getMessage() );
+    }
+  }
+
+  /**
   * Retrieve the models from OpenRouter, adding tags/features accordingly.
   */
   public function retrieve_models() {
@@ -123,7 +264,7 @@ class Meow_MWAI_Engines_OpenRouter extends Meow_MWAI_Engines_ChatML {
     // 1. Get the list of models supporting "tools"
     $toolsModels = $this->get_supported_models( 'tools' );
 
-    // 2. Retrieve the full list of models
+    // 2. Retrieve the full list of chat models
     $url = 'https://openrouter.ai/api/v1/models';
     $response = wp_remote_get( $url );
     if ( is_wp_error( $response ) ) {
@@ -136,68 +277,71 @@ class Meow_MWAI_Engines_OpenRouter extends Meow_MWAI_Engines_ChatML {
 
     $models = [];
     foreach ( $body['data'] as $model ) {
+      $models[] = $this->build_model_entry( $model, $toolsModels );
+    }
 
-      // Basic defaults
-      $family = 'n/a';
-      $maxCompletionTokens = 4096;
-      $maxContextualTokens = 8096;
-      $priceIn = 0;
-      $priceOut = 0;
+    // 3. Retrieve embedding models
+    $embeddingsUrl = 'https://openrouter.ai/api/v1/embeddings/models';
+    $embeddingsResponse = wp_remote_get( $embeddingsUrl );
+    if ( !is_wp_error( $embeddingsResponse ) ) {
+      $embeddingsBody = json_decode( $embeddingsResponse['body'], true );
+      if ( isset( $embeddingsBody['data'] ) && is_array( $embeddingsBody['data'] ) ) {
+        foreach ( $embeddingsBody['data'] as $model ) {
+          $models[] = $this->build_model_entry( $model, [], true );
+        }
+      }
+    }
 
-      // Family from model ID (e.g. "openai/gpt-4/32k" -> "openai")
-      if ( isset( $model['id'] ) ) {
-        $parts = explode( '/', $model['id'] );
-        $family = $parts[0] ?? 'n/a';
+    return $models;
+  }
+
+  /**
+  * Build a model entry from OpenRouter API data.
+  */
+  private function build_model_entry( $model, $toolsModels = [], $isEmbedding = false ) {
+    // Basic defaults
+    $family = 'n/a';
+    $maxCompletionTokens = 4096;
+    $maxContextualTokens = 8096;
+    $priceIn = 0;
+    $priceOut = 0;
+
+    // Family from model ID (e.g. "openai/gpt-4/32k" -> "openai")
+    if ( isset( $model['id'] ) ) {
+      $parts = explode( '/', $model['id'] );
+      $family = $parts[0] ?? 'n/a';
+    }
+
+    // maxCompletionTokens
+    if ( isset( $model['top_provider']['max_completion_tokens'] ) ) {
+      $maxCompletionTokens = (int) $model['top_provider']['max_completion_tokens'];
+    }
+
+    // maxContextualTokens
+    if ( isset( $model['context_length'] ) ) {
+      $maxContextualTokens = (int) $model['context_length'];
+    }
+
+    // Pricing
+    if ( isset( $model['pricing']['prompt'] ) && $model['pricing']['prompt'] > 0 ) {
+      $priceIn = $this->truncate_float( floatval( $model['pricing']['prompt'] ) * 1000 );
+    }
+    if ( isset( $model['pricing']['completion'] ) && $model['pricing']['completion'] > 0 ) {
+      $priceOut = $this->truncate_float( floatval( $model['pricing']['completion'] ) * 1000 );
+    }
+
+    // Handle embedding models
+    if ( $isEmbedding ) {
+      $features = [ 'embeddings' ];
+      $tags = [ 'core', 'embedding' ];
+
+      // Try to extract dimensions from description
+      $dimensions = null;
+      if ( isset( $model['description'] ) && preg_match( '/(\d+)-dimensional/', $model['description'], $matches ) ) {
+        $dimensions = (int) $matches[1];
       }
 
-      // maxCompletionTokens
-      if ( isset( $model['top_provider']['max_completion_tokens'] ) ) {
-        $maxCompletionTokens = (int) $model['top_provider']['max_completion_tokens'];
-      }
-
-      // maxContextualTokens
-      if ( isset( $model['context_length'] ) ) {
-        $maxContextualTokens = (int) $model['context_length'];
-      }
-
-      // Pricing
-      if ( isset( $model['pricing']['prompt'] ) && $model['pricing']['prompt'] > 0 ) {
-        $priceIn = $this->truncate_float( floatval( $model['pricing']['prompt'] ) * 1000 );
-      }
-      if ( isset( $model['pricing']['completion'] ) && $model['pricing']['completion'] > 0 ) {
-        $priceOut = $this->truncate_float( floatval( $model['pricing']['completion'] ) * 1000 );
-      }
-
-      // Basic features and tags
-      $features = [ 'completion' ];
-      $tags = [ 'core', 'chat' ];
-
-      // If the name contains (beta), (alpha) or (preview), add 'preview' tag and remove from name
-      if ( preg_match( '/\((beta|alpha|preview)\)/i', $model['name'] ) ) {
-        $tags[] = 'preview';
-        $model['name'] = preg_replace( '/\((beta|alpha|preview)\)/i', '', $model['name'] );
-      }
-
-      // If model supports tools
-      if ( in_array( $model['id'], $toolsModels, true ) ) {
-        $tags[] = 'functions';
-        $features[] = 'functions';
-      }
-
-      // Check if the model supports "vision" (if "image" is in the left side of the arrow)
-      // e.g. "text+image->text" or "image->text"
-      $modality = $model['architecture']['modality'] ?? '';
-      $modality_lc = strtolower( $modality );
-      if (
-        strpos( $modality_lc, 'image->' ) !== false ||
-          strpos( $modality_lc, 'image+' ) !== false ||
-            strpos( $modality_lc, '+image->' ) !== false
-      ) {
-        // Means it can handle images as input, so we consider that "vision"
-        $tags[] = 'vision';
-      }
-
-      $models[] = [
+      $entry = [
         'model' => $model['id'] ?? '',
         'name' => trim( $model['name'] ?? '' ),
         'family' => $family,
@@ -208,13 +352,81 @@ class Meow_MWAI_Engines_OpenRouter extends Meow_MWAI_Engines_ChatML {
         ],
         'type' => 'token',
         'unit' => 1 / 1000,
-        'maxCompletionTokens' => $maxCompletionTokens,
         'maxContextualTokens' => $maxContextualTokens,
         'tags' => $tags,
       ];
+
+      if ( $dimensions ) {
+        $entry['dimensions'] = $dimensions;
+      }
+
+      return $entry;
     }
 
-    return $models;
+    // Basic features and tags for chat models
+    $features = [ 'completion' ];
+    $tags = [ 'core', 'chat' ];
+
+    // If the name contains (beta), (alpha) or (preview), add 'preview' tag and remove from name
+    if ( preg_match( '/\((beta|alpha|preview)\)/i', $model['name'] ) ) {
+      $tags[] = 'preview';
+      $model['name'] = preg_replace( '/\((beta|alpha|preview)\)/i', '', $model['name'] );
+    }
+
+    // If model supports tools
+    if ( in_array( $model['id'], $toolsModels, true ) ) {
+      $tags[] = 'functions';
+      $features[] = 'functions';
+    }
+
+    // Check if the model supports "vision" (if "image" is in the left side of the arrow)
+    // e.g. "text+image->text" or "image->text"
+    $modality = $model['architecture']['modality'] ?? '';
+    $modality_lc = strtolower( $modality );
+    if (
+      strpos( $modality_lc, 'image->' ) !== false ||
+        strpos( $modality_lc, 'image+' ) !== false ||
+          strpos( $modality_lc, '+image->' ) !== false
+    ) {
+      // Means it can handle images as input, so we consider that "vision"
+      $tags[] = 'vision';
+    }
+
+    // Check if the model supports image generation (if "image" is in the output part after "->")
+    // e.g. "text->image" or "text+image->text+image" means it can generate images
+    $isImageGeneration = false;
+    if ( strpos( $modality_lc, '->' ) !== false ) {
+      $parts = explode( '->', $modality_lc );
+      $outputPart = $parts[1] ?? '';
+      $isImageGeneration = strpos( $outputPart, 'image' ) !== false;
+    }
+    if ( $isImageGeneration ) {
+      $features = [ 'text-to-image' ];
+      $tags = [ 'core', 'image' ];
+    }
+
+    $entry = [
+      'model' => $model['id'] ?? '',
+      'name' => trim( $model['name'] ?? '' ),
+      'family' => $family,
+      'features' => $features,
+      'price' => [
+        'in' => $priceIn,
+        'out' => $priceOut,
+      ],
+      'type' => 'token',
+      'unit' => 1 / 1000,
+      'maxCompletionTokens' => $maxCompletionTokens,
+      'maxContextualTokens' => $maxContextualTokens,
+      'tags' => $tags,
+    ];
+
+    // Add mode for image generation models
+    if ( $isImageGeneration ) {
+      $entry['mode'] = 'image';
+    }
+
+    return $entry;
   }
 
   /**
@@ -260,14 +472,14 @@ class Meow_MWAI_Engines_OpenRouter extends Meow_MWAI_Engines_ChatML {
     try {
       // Use the existing retrieve_models method
       $models = $this->retrieve_models();
-      
+
       if ( !is_array( $models ) ) {
         throw new Exception( 'Invalid response format from OpenRouter' );
       }
 
       $modelCount = count( $models );
       $availableModels = [];
-      
+
       // Get first 5 models for display
       $displayModels = array_slice( $models, 0, 5 );
       foreach ( $displayModels as $model ) {
