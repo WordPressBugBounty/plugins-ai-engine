@@ -861,6 +861,10 @@ class Meow_MWAI_Modules_Files {
     dbDelta( $sqlFileMeta );
   }
 
+  public function skip_db_check() {
+    $this->db_check = true;
+  }
+
   public function check_db() {
     if ( $this->db_check ) {
       return true;

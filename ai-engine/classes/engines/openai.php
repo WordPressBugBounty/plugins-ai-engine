@@ -169,7 +169,7 @@ class Meow_MWAI_Engines_OpenAI extends Meow_MWAI_Engines_ChatML {
       // For Responses API, feedback queries MUST use previous_response_id to maintain conversation state
       if ( $historyStrategy === 'response_id' && !empty( $query->previousResponseId ) ) {
         // Use ResponseIdManager to validate the response ID
-        if ( $this->core->responseIdManager->is_valid_for_responses_api( $query->previousResponseId ) ) {
+        if ( $this->core->responseIdManager->is_responses_api_id( $query->previousResponseId ) ) {
           // Use incremental mode with previous_response_id
           $body['previous_response_id'] = $query->previousResponseId;
 

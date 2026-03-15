@@ -1146,57 +1146,49 @@ class Meow_MWAI_Engines_Anthropic extends Meow_MWAI_Engines_ChatML {
 
   /**
    * Check the connection to Anthropic by listing available models.
-   * Anthropic doesn't provide a models endpoint, so we just verify authentication works.
    */
   public function connection_check() {
     try {
-      // Get the endpoint
       $endpoint = apply_filters( 'mwai_anthropic_endpoint', 'https://api.anthropic.com/v1', $this->env );
+      $url = trailingslashit( $endpoint ) . 'models';
 
-      // For Anthropic, we'll use the messages endpoint with a minimal request to verify auth
-      $url = trailingslashit( $endpoint ) . 'messages';
-
-      // Create a minimal query just to test authentication
-      $testBody = [
-        'model' => 'claude-3-haiku-20240307',  // Use cheapest model
-        'max_tokens' => 1,
-        'messages' => [
-          ['role' => 'user', 'content' => 'Hi']
+      $response = wp_remote_get( $url, [
+        'headers' => [
+          'x-api-key' => $this->apiKey,
+          'anthropic-version' => '2023-06-01',
         ],
-        'metadata' => [
-          'user_id' => 'connection_test'
-        ]
-      ];
+        'timeout' => 30,
+      ] );
 
-      // Build headers with a dummy query
-      $dummyQuery = new Meow_MWAI_Query_Text( 'test' );
-      $headers = $this->build_headers( $dummyQuery );
-      $options = $this->build_options( $headers, $testBody );
+      if ( is_wp_error( $response ) ) {
+        throw new Exception( $response->get_error_message() );
+      }
 
-      // Try to make a minimal request
-      $response = $this->run_query( $url, $options );
+      $code = wp_remote_retrieve_response_code( $response );
+      $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
-      // If we get here without exception, the API key is valid
-      // Get the list of available models from our constants
-      $models = $this->get_models();
-      $modelNames = array_map( function ( $model ) {
-        return $model['model'] ?? $model['name'] ?? 'unknown';
-      }, $models );
+      if ( $code === 401 || ( isset( $body['error']['type'] ) && $body['error']['type'] === 'authentication_error' ) ) {
+        throw new Exception( 'Invalid API key' );
+      }
+
+      if ( $code !== 200 ) {
+        throw new Exception( 'Connection failed: ' . ( $body['error']['message'] ?? "HTTP $code" ) );
+      }
+
+      $availableModels = [];
+      if ( isset( $body['data'] ) && is_array( $body['data'] ) ) {
+        foreach ( array_slice( $body['data'], 0, 10 ) as $model ) {
+          $availableModels[] = $model['id'] ?? 'unknown';
+        }
+      }
 
       return [
-        'models' => array_slice( $modelNames, 0, 10 ),  // Return first 10 models
+        'models' => $availableModels,
         'service' => 'Anthropic'
       ];
     }
     catch ( Exception $e ) {
-      // Check if it's an authentication error
-      $message = $e->getMessage();
-      if ( strpos( $message, 'authentication_error' ) !== false ||
-           strpos( $message, 'invalid x-api-key' ) !== false ||
-           strpos( $message, '401' ) !== false ) {
-        throw new Exception( 'Invalid API key' );
-      }
-      throw new Exception( 'Connection failed: ' . $message );
+      throw new Exception( 'Connection failed: ' . $e->getMessage() );
     }
   }
 

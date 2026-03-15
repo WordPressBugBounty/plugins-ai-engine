@@ -470,7 +470,7 @@ i18n.HELP = {
   FUNCTIONS_CODE_ENGINE_TEXT: __( 'Code Engine ↗', 'ai-engine' ),
   MCP_SERVERS: __( 'Select the MCP servers to make available for the AI model. These servers provide external tools and capabilities that the AI can use to enhance responses and perform specialized actions.', 'ai-engine' ),
   MCP_SERVERS_UNAVAILABLE: __( 'No MCP servers are available. Configure them in Settings > Orchestration.', 'ai-engine' ),
-  TOOLS: __( 'Enable AI tools to enhance your chatbot capabilities. Web Search and Image Generation work with OpenAI and Google. Code Interpreter is OpenAI-only.', 'ai-engine' ),
+  TOOLS: __( 'Enable AI tools to enhance your chatbot capabilities. Availability depends on the model, so please test to confirm they work with your chosen model.', 'ai-engine' ),
   WEB_SEARCH: __( 'Allow the AI to search the web for current information', 'ai-engine' ),
   IMAGE_GENERATION: __( 'Allow the AI to generate images based on text descriptions', 'ai-engine' ),
   CODE_INTERPRETER: __( 'Allow the AI to write and run Python code to solve complex problems, process data, and generate visualizations', 'ai-engine' ),

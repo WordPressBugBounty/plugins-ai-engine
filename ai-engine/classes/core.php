@@ -22,6 +22,7 @@ class Meow_MWAI_Core {
   private $themes_option_name = 'mwai_themes';
   private $chatbots_option_name = 'mwai_chatbots';
   private $nonce = null;
+  private $db_version_option = 'mwai_db_version';
 
   public $chatbot = null;
   public $discussions = null;
@@ -44,6 +45,10 @@ class Meow_MWAI_Core {
     $this->files = new Meow_MWAI_Modules_Files( $this );
     $this->tasks = new Meow_MWAI_Modules_Tasks( $this );
     $this->advisor = new Meow_MWAI_Modules_Advisor( $this );
+    if ( !$this->needs_db_check() ) {
+      $this->files->skip_db_check();
+      $this->tasks->skip_db_check();
+    }
 
     // Load task examples in Dev Mode
     if ( $this->get_option( 'dev_mode' ) ) {
@@ -176,6 +181,29 @@ class Meow_MWAI_Core {
         new MeowPro_MWAI_MCP_WooCommerce( $this );
       }
     }
+
+    // Version-gated DB checks: run all check_db() on version change, then store the version.
+    if ( $this->needs_db_check() ) {
+      $this->files->check_db();
+      $this->tasks->check_db();
+      if ( $this->discussions ) {
+        $this->discussions->check_db();
+      }
+      $this->mark_db_current();
+    }
+    else {
+      if ( $this->discussions ) {
+        $this->discussions->skip_db_check();
+      }
+    }
+  }
+
+  public function needs_db_check() {
+    return get_option( $this->db_version_option, null ) !== MWAI_VERSION;
+  }
+
+  public function mark_db_current() {
+    update_option( $this->db_version_option, MWAI_VERSION, true );
   }
 
   public function register_scripts() {
@@ -1305,7 +1333,9 @@ class Meow_MWAI_Core {
     $json = [];
     $functions = apply_filters( 'mwai_functions_list', [] );
     foreach ( $functions as $function ) {
-      if ( $function->type === 'editor-assistant' ) { continue; }
+      if ( $function->type === 'editor-assistant' ) {
+        continue;
+      }
       $json[] = Meow_MWAI_Query_Function::toJson( $function );
     }
     $options['functions'] = $json;

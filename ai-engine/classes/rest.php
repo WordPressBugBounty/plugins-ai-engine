@@ -17,19 +17,7 @@ class Meow_MWAI_Rest {
   * @return string The retrieved (and optionally sanitized) message.
   */
   public function retrieve_message( &$params, $sanitize = false ): string {
-    if ( isset( $params['message'] ) ) {
-      $message = $params['message'];
-    }
-    // TODO: Remove after March 2026 - Legacy "prompt" parameter support
-    elseif ( isset( $params['prompt'] ) ) {
-      $message = $params['prompt'];
-      unset( $params['prompt'] );
-      $params['message'] = $message;
-      Meow_MWAI_Logging::deprecated( '"prompt" is deprecated, please use "message" instead.' );
-    }
-    else {
-      $message = '';
-    }
+    $message = $params['message'] ?? '';
 
     if ( $sanitize ) {
       $message = sanitize_text_field( $message );
@@ -867,7 +855,7 @@ class Meow_MWAI_Rest {
         $mask_file = $files['mask'];
         if ( $mask_file['error'] === UPLOAD_ERR_OK ) {
           $mask_data = file_get_contents( $mask_file['tmp_name'] );
-          $query->set_mask( Meow_MWAI_Query_DroppedFile::from_data( $mask_data, 'vision', $mask_file['type'] ) );
+          $query->set_mask( Meow_MWAI_Query_DroppedFile::from_data( $mask_data, 'analysis', $mask_file['type'] ) );
         }
       }
 
@@ -1342,9 +1330,13 @@ class Meow_MWAI_Rest {
         $ignored_ids = array_map( 'intval', $ignored_ids );
         $exclude_sql = ' AND p.ID NOT IN (' . implode( ',', $ignored_ids ) . ')';
       }
+      $mimeFilter = '';
+      if ( $postType === 'attachment' ) {
+        $mimeFilter = " AND p.post_mime_type LIKE 'image/%'";
+      }
       $query = "SELECT COUNT(*) FROM {$wpdb->posts} p
                 WHERE p.post_type = %s
-                AND p.post_status IN ($statusPlaceholders)" . $exclude_sql;
+                AND p.post_status IN ($statusPlaceholders)" . $exclude_sql . $mimeFilter;
       $prepareArgs = array_merge( [ $postType ], $postStatus );
       $count = (int) $wpdb->get_var( $wpdb->prepare( $query, ...$prepareArgs ) );
       return $this->create_rest_response( [ 'success' => true, 'count' => $count ], 200 );
@@ -1372,10 +1364,14 @@ class Meow_MWAI_Rest {
         $ignored_ids = array_map( 'intval', $ignored_ids );
         $exclude_sql = ' AND p.ID NOT IN (' . implode( ',', $ignored_ids ) . ')';
       }
+      $mimeFilter = '';
+      if ( $postType === 'attachment' ) {
+        $mimeFilter = " AND p.post_mime_type LIKE 'image/%'";
+      }
       $query = "SELECT p.ID FROM {$wpdb->posts} p
                 WHERE p.post_type = %s
-                AND p.post_status IN ($statusPlaceholders)" . $exclude_sql . "
-                ORDER BY p.ID ASC";
+                AND p.post_status IN ($statusPlaceholders)" . $exclude_sql . $mimeFilter . '
+                ORDER BY p.ID ASC';
 
       $prepareArgs = array_merge( [ $postType ], $postStatus );
       $postIds = $wpdb->get_col( $wpdb->prepare( $query, ...$prepareArgs ) );

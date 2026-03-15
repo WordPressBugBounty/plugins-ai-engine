@@ -243,12 +243,12 @@ class Meow_MWAI_Engines_Core {
       $isResponsesApi = false;
 
       // Method 1: Check if query has a previous response ID from Responses API
-      if ( !empty( $query->previousResponseId ) && $this->core->responseIdManager->is_valid_for_responses_api( $query->previousResponseId ) ) {
+      if ( !empty( $query->previousResponseId ) && $this->core->responseIdManager->is_responses_api_id( $query->previousResponseId ) ) {
         $isResponsesApi = true;
       }
 
       // Method 2: Check if the reply has a Responses API response ID
-      if ( !$isResponsesApi && !empty( $reply->id ) && $this->core->responseIdManager->is_valid_for_responses_api( $reply->id ) ) {
+      if ( !$isResponsesApi && !empty( $reply->id ) && $this->core->responseIdManager->is_responses_api_id( $reply->id ) ) {
         $isResponsesApi = true;
       }
 

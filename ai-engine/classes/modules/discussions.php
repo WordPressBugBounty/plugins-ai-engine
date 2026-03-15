@@ -544,6 +544,7 @@ class Meow_MWAI_Modules_Discussions {
       $botId = $customId;
     }
     $newMessage = isset( $params['newMessage'] ) ? $params['newMessage'] : $query->get_message();
+    $shortcutName = isset( $params['shortcutName'] ) ? $params['shortcutName'] : null;
 
     // If there are images, add them to the message for display purposes
     $attachments = method_exists( $query, 'getAttachments' ) ? $query->getAttachments() : [];
@@ -590,7 +591,12 @@ class Meow_MWAI_Modules_Discussions {
 
     if ( $chat ) {
       $chat->messages = json_decode( $chat->messages );
-      $chat->messages[] = [ 'role' => 'user', 'content' => $newMessage ];
+      $userMessage = [ 'role' => 'user', 'content' => $newMessage ];
+      if ( $shortcutName ) {
+        $userMessage['shortcutName'] = $shortcutName;
+        $userMessage['shortcutPrompt'] = $query->get_message();
+      }
+      $chat->messages[] = $userMessage;
       $chat->messages[] = [ 'role' => 'assistant', 'content' => $rawText, 'extra' => $messageExtra ];
       $chat->messages = json_encode( $chat->messages );
 
@@ -615,7 +621,12 @@ class Meow_MWAI_Modules_Discussions {
       if ( !empty( $startSentence ) ) {
         $messages[] = [ 'role' => 'assistant', 'content' => $startSentence ];
       }
-      $messages[] = [ 'role' => 'user', 'content' => $newMessage ];
+      $userMessage = [ 'role' => 'user', 'content' => $newMessage ];
+      if ( $shortcutName ) {
+        $userMessage['shortcutName'] = $shortcutName;
+        $userMessage['shortcutPrompt'] = $query->get_message();
+      }
+      $messages[] = $userMessage;
       $messages[] = [ 'role' => 'assistant', 'content' => $rawText, 'extra' => $messageExtra ];
       $chat = [
         'userId' => $userId,
@@ -712,6 +723,10 @@ class Meow_MWAI_Modules_Discussions {
     }
 
     return true;
+  }
+
+  public function skip_db_check() {
+    $this->db_check = true;
   }
 
   public function check_db() {
