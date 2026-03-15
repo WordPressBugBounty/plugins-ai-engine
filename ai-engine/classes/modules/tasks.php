@@ -17,6 +17,9 @@ class Meow_MWAI_Modules_Tasks {
     $this->table_tasks = $wpdb->prefix . 'mwai_tasks';
     $this->table_tasklogs = $wpdb->prefix . 'mwai_tasklogs';
 
+    // Initialize database
+    $this->check_db();
+
     // Register REST API
     add_action( 'rest_api_init', [ $this, 'rest_api_init' ] );
 
@@ -1357,13 +1360,15 @@ class Meow_MWAI_Modules_Tasks {
   /**
    * Check and create database tables
    */
-  public function skip_db_check() {
-    $this->db_check = true;
-  }
-
   public function check_db() {
     // Don't run multiple times
     if ( $this->db_check ) {
+      return true;
+    }
+
+    // Per-module version check: skip SHOW TABLES if already verified for this version.
+    if ( get_option( 'mwai_db_version_tasks' ) === MWAI_VERSION ) {
+      $this->db_check = true;
       return true;
     }
 
@@ -1373,13 +1378,19 @@ class Meow_MWAI_Modules_Tasks {
 
     if ( !$tasks_exists || !$logs_exists ) {
       $this->create_db();
+      $tasks_exists = $this->wpdb->get_var( "SHOW TABLES LIKE '$this->table_tasks'" );
+      $logs_exists = $this->wpdb->get_var( "SHOW TABLES LIKE '$this->table_tasklogs'" );
     }
 
-    // Check for database upgrades
-    $this->upgrade_db();
+    $this->db_check = $tasks_exists && $logs_exists;
 
-    $this->db_check = true;
-    return true;
+    if ( $this->db_check ) {
+      // Check for database upgrades
+      $this->upgrade_db();
+      update_option( 'mwai_db_version_tasks', MWAI_VERSION, true );
+    }
+
+    return $this->db_check;
   }
 
   /**

@@ -56,6 +56,7 @@ class Meow_MWAI_Modules_Discussions {
   }
 
   public function can_delete_discussion( $request ) {
+    $this->check_db();
     $params = $request->get_json_params();
     $chatIds = isset( $params['chatIds'] ) ? $params['chatIds'] : null;
     $userId = get_current_user_id();
@@ -405,6 +406,7 @@ class Meow_MWAI_Modules_Discussions {
 
   public function rest_discussions_delete_admin( $request ) {
     try {
+      $this->check_db();
       $params = $request->get_json_params();
       $chatsIds = $params['chatIds'];
       if ( is_array( $chatsIds ) ) {
@@ -424,6 +426,7 @@ class Meow_MWAI_Modules_Discussions {
 
   public function rest_discussions_delete( $request ) {
     try {
+      $this->check_db();
       $params = $request->get_json_params();
       $chatIds = isset( $params['chatIds'] ) ? $params['chatIds'] : null;
 
@@ -725,14 +728,17 @@ class Meow_MWAI_Modules_Discussions {
     return true;
   }
 
-  public function skip_db_check() {
-    $this->db_check = true;
-  }
-
   public function check_db() {
     if ( $this->db_check ) {
       return true;
     }
+
+    // Per-module version check: skip SHOW TABLES if already verified for this version.
+    if ( get_option( 'mwai_db_version_discussions' ) === MWAI_VERSION ) {
+      $this->db_check = true;
+      return true;
+    }
+
     $this->db_check = !(
       strtolower( $this->wpdb->get_var( "SHOW TABLES LIKE '$this->table_chats'" ) )
           != strtolower( $this->table_chats )
@@ -743,6 +749,10 @@ class Meow_MWAI_Modules_Discussions {
         strtolower( $this->wpdb->get_var( "SHOW TABLES LIKE '$this->table_chats'" ) )
             != strtolower( $this->table_chats )
       );
+    }
+
+    if ( $this->db_check ) {
+      update_option( 'mwai_db_version_discussions', MWAI_VERSION, true );
     }
 
     return $this->db_check;
