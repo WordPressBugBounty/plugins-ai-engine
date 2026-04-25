@@ -353,8 +353,8 @@ class Meow_MWAI_Engines_Core {
 
         // Add the feedback information to the appropriate feedback block
         $feedback_blocks[$rawMessageKey]['feedbacks'][] = [
-          'request' => $needFeedback, // TODO: Meow_MWAI_Feedback_Request
-          'reply' => [ 'value' => $value ] // TODO: Meow_MWAI_Feedback_Reply
+          'request' => $needFeedback,
+          'reply' => [ 'value' => $value ]
         ];
       }
 
@@ -555,14 +555,6 @@ class Meow_MWAI_Engines_Core {
   public function stream_handler( $handle, $args, $url ) {
     curl_setopt( $handle, CURLOPT_SSL_VERIFYPEER, false );
     curl_setopt( $handle, CURLOPT_SSL_VERIFYHOST, false );
-
-    // TODO: This is breaking the response. We need to find a way to handle the headers.
-    // curl_setopt( $handle, CURLOPT_HEADERFUNCTION, function ( $curl, $header ) {
-    //   $length = strlen( $header );
-    //   $this->streamHeaders[] = $header;
-    //   $this->stream_header_handler( $header );
-    //   return $length;
-    // });
 
     curl_setopt( $handle, CURLOPT_WRITEFUNCTION, function ( $curl, $data ) use ( $url ) {
       $length = strlen( $data );
