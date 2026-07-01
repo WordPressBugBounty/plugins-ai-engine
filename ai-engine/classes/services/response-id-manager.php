@@ -14,6 +14,7 @@ class Meow_MWAI_Services_ResponseIdManager {
   public const OPENAI_RESPONSES_PATTERN = '/^resp_/';
   public const OPENAI_CHAT_PATTERN = '/^chatcmpl-/';
   public const ANTHROPIC_PATTERN = '/^msg_/';
+  public const GOOGLE_INTERACTIONS_PATTERN = '/^v1_/';
 
   // Expiry time (30 days as per OpenAI's policy)
   public const EXPIRY_DAYS = 30;
@@ -91,6 +92,24 @@ class Meow_MWAI_Services_ResponseIdManager {
   */
   public function is_responses_api_id( string $responseId ): bool {
     return preg_match( self::OPENAI_RESPONSES_PATTERN, $responseId ) === 1;
+  }
+
+  /**
+  * Check if ID is from Google's Interactions API (stateful, server-side history)
+  */
+  public function is_interactions_api_id( string $responseId ): bool {
+    return preg_match( self::GOOGLE_INTERACTIONS_PATTERN, $responseId ) === 1;
+  }
+
+  /**
+  * Whether the ID refers to a stateful, server-side conversation that must be
+  * kept consistent (OpenAI Responses or Google Interactions). Used to avoid
+  * skipping the function-result round-trip on all-static turns, which would
+  * leave the server-side conversation half-answered.
+  */
+  public function is_stateful_conversation_id( string $responseId ): bool {
+    return $this->is_responses_api_id( $responseId )
+      || $this->is_interactions_api_id( $responseId );
   }
 
   /**
