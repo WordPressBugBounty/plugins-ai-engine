@@ -2181,9 +2181,27 @@ class Meow_MWAI_Labs_MCP_Core {
           if ( $has_url ) {
             $tmp = download_url( $a['url'] );
             if ( is_wp_error( $tmp ) ) {
-              throw new Exception( $tmp->get_error_message(), $tmp->get_error_code() );
+              // WP_Error codes are strings (e.g. http_request_failed); Exception's
+              // $code must be an int, so keep the code in the message instead.
+              throw new Exception( 'Download failed (' . $tmp->get_error_code() . '): ' . $tmp->get_error_message() );
             }
-            $file = [ 'name' => basename( parse_url( $a['url'], PHP_URL_PATH ) ), 'tmp_name' => $tmp ];
+            // URLs like https://picsum.photos/800/600 have no file extension, so
+            // basename() yields a name that media_handle_sideload() rejects. Sniff
+            // the real type of the downloaded file and append a proper extension.
+            $name = basename( parse_url( $a['url'], PHP_URL_PATH ) );
+            if ( $name === '' || pathinfo( $name, PATHINFO_EXTENSION ) === '' ) {
+              $ext = '';
+              $check = wp_check_filetype_and_ext( $tmp, $name ?: 'image' );
+              if ( !empty( $check['ext'] ) ) {
+                $ext = $check['ext'];
+              }
+              elseif ( function_exists( 'mime_content_type' ) ) {
+                $map = [ 'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp' ];
+                $ext = $map[ mime_content_type( $tmp ) ] ?? '';
+              }
+              $name = ( $name ?: 'image' ) . ( $ext ? '.' . $ext : '' );
+            }
+            $file = [ 'name' => sanitize_file_name( $name ), 'tmp_name' => $tmp ];
           }
           else {
             $decoded = base64_decode( $a['base64'], true );
@@ -2198,7 +2216,7 @@ class Meow_MWAI_Labs_MCP_Core {
           $id = media_handle_sideload( $file, 0, $a['description'] ?? '' );
           @unlink( $tmp );
           if ( is_wp_error( $id ) ) {
-            throw new Exception( $id->get_error_message(), $id->get_error_code() );
+            throw new Exception( 'Sideload failed (' . $id->get_error_code() . '): ' . $id->get_error_message() );
           }
           if ( $a['title'] ?? '' ) {
             wp_update_post( wp_slash( [ 'ID' => $id, 'post_title' => sanitize_text_field( $a['title'] ) ] ) );
