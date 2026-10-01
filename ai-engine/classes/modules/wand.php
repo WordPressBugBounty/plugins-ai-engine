@@ -233,7 +233,10 @@ class Meow_MWAI_Modules_Wand {
   */
   public function action_suggestSynonyms( $value, $arguments ) {
     $postId = $arguments['postId'];
-    $selectedText = $arguments['selectedText'];
+    $selectedText = trim( $arguments['selectedText'] ?? '' );
+    if ( $selectedText === '' ) {
+      throw new Exception( 'Select a word or a sentence first.' );
+    }
     [ $query, $language ] = $this->createWandQuery( $postId );
     $prompt = apply_filters( 'mwai_prompt_suggestSynonyms', "Provide 5 synonyms or 5 ways of rephrasing the given word or sentence while retaining the original meaning and preserving the initial and final punctuation and spacing if any. Offer only the resulting word or expression, without additional context. If a suitable synonym or alternative cannot be identified, ensure that a creative response is still provided. Separate every suggestion with a new line, and that's it." . $this->keepLanguage( $language ), $arguments );
     $query->set_instructions( $prompt );
