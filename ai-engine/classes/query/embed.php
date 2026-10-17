@@ -8,7 +8,7 @@ class Meow_MWAI_Query_Embed extends Meow_MWAI_Query_Base {
   public function __construct( $messageOrQuery = null ) {
     if ( is_a( $messageOrQuery, 'Meow_MWAI_Query_Text' ) || is_a( $messageOrQuery, 'Meow_MWAI_Query_Assistant' ) ) {
       $lastMessage = $messageOrQuery->get_message();
-      if ( !empty( $lastMessage ) ) {
+      if ( trim( (string) $lastMessage ) !== '' ) {
         $this->set_message( $lastMessage );
       }
       $this->session = $messageOrQuery->session;
@@ -19,7 +19,8 @@ class Meow_MWAI_Query_Embed extends Meow_MWAI_Query_Base {
       $this->envId = $messageOrQuery->envId;
     }
     else {
-      parent::__construct( $messageOrQuery ? $messageOrQuery : '' );
+      // Not a truthiness check: a user typing "0" used to end up with an empty embeddings query.
+      parent::__construct( $messageOrQuery ?? '' );
     }
 
     global $mwai_core;
