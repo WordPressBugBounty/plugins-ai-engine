@@ -15,6 +15,8 @@ The AI chatbot, AI agent and MCP server for WordPress. Connect OpenAI, Claude, G
 
 **AI Engine connects WordPress with AI models.** One install, stable connectors for every major AI provider: OpenAI, Anthropic, Google, Mistral, and more. Build intelligent chatbots, generate content, create AI forms, and automate tasks. All from your WordPress dashboard.
 
+https://www.youtube.com/watch?v=KDTcI7jjdPA
+
 Take the tour at [vibewithwp.ai](https://vibewithwp.ai/): what AI Engine does, how the MCP server works, and how it compares to the alternatives. Please make sure you read the [disclaimer](https://meowapps.com/ai-engine/disclaimer/). For more information, check the official website of [AI Engine](https://meowapps.com/ai-engine/).
 
 == Quick Intro ==
