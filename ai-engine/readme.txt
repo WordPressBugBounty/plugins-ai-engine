@@ -5,7 +5,7 @@ Donate link: https://www.patreon.com/meowapps
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 3.8.8
+Stable tag: 3.8.9
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -182,6 +182,8 @@ AI Engine turns your WordPress site into an intelligent MCP server. AI agents li
 
 **Direct and private.** AI apps connect straight to your site. There is no relay service in between, your credentials never leave WordPress, and the MCP server is free, with no monthly fee and no usage cap.
 
+**See and undo every change.** The MCP tab lists what each assistant changed on your site, with a link to WordPress's before/after view and a one-click way back to the version before the edit.
+
 Rather have it set up for you? [Connect with Meow Apps](https://connect.meowapps.com/?ref=wporg) adds your site to ChatGPT or Claude in a few clicks, through our gateway, which passes requests along without storing them.
 
 **What AI Agents Can Do:**
@@ -328,6 +330,15 @@ Start with the [Basics guide](https://ai.thehiddendocs.com/basics/) for installa
 Report security vulnerabilities through the [Patchstack Vulnerability Disclosure Program](https://patchstack.com/database/vdp/9e5fbbbc-964a-4204-8bc0-198f21284efd).
 
 == Changelog ==
+
+= 3.8.9 (2026/10/30) =
+* Add: GPT-6.1 Terra model.
+* Add: Restore link in Recent Changes, which opens the version from before an AI edit.
+* Update: Connect card now offers a choice between a direct connection (recommended) and the Meow Apps relay, with labels under each choice explaining what it brings, and the address to copy now sits in the Copy step.
+* Update: Connect card opens on the direct connection for Claude and ChatGPT, with the directory and the ChatGPT app one click away.
+* Update: Image Studio's edit link now only accepts a media ID.
+* Fix: Chatbot now explains why a file could not be sent to OpenAI, instead of showing OpenAI's "Expected an ID that begins with file" error.
+* Fix: OpenRouter model list now waits up to 30 seconds to load, for slow hosts.
 
 = 3.8.8 (2026/10/27) =
 * Fix: Security: Shop Managers can no longer edit administrator accounts through MCP, and the plugin and theme file tools now follow DISALLOW_FILE_EDIT.
